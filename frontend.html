@@ -49,14 +49,14 @@
 
     // Click to start auth flow
     document.getElementById("connect-btn").addEventListener("click", async () => {
-      const res = await fetch("/start-auth");
+      const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
       const data = await res.json();
       document.getElementById("qr-image").src = data.qr;
       document.getElementById("qr-container").classList.remove("hidden");
 
       // Poll every 2 seconds for auth
       const poll = setInterval(async () => {
-        const status = await fetch(`/check-auth/${data.uuid}`).then(res => res.json());
+        const status = await fetch(`https://mint-rps-duel-production.up.railway.app/check-auth/${data.uuid}`).then(res => res.json());
         if (status.address) {
           clearInterval(poll);
           wallet = status.address;
@@ -73,8 +73,8 @@
 
     async function loadBalances() {
       const [tokens, supply] = await Promise.all([
-        fetch(`/balances/${wallet}`).then(r => r.json()),
-        fetch("/supply").then(r => r.json())
+        fetch(`https://mint-rps-duel-production.up.railway.app/balances/${wallet}`).then(r => r.json()),
+        fetch("https://mint-rps-duel-production.up.railway.app/supply").then(r => r.json())
       ]);
 
       document.getElementById("rock-count").textContent = tokens["1"] || 0;
@@ -90,7 +90,7 @@
 
     // Mint button handler
     document.getElementById("mint-btn").addEventListener("click", async () => {
-      const res = await fetch("/mint", {
+      const res = await fetch("https://mint-rps-duel-production.up.railway.app/mint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ wallet })
