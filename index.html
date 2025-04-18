@@ -46,17 +46,21 @@
 
   <script>
     let wallet = null;
+    let authTokenId = null;
 
     // Click to start auth flow
     document.getElementById("connect-btn").addEventListener("click", async () => {
       const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
       const data = await res.json();
+
+      authTokenId = data.id;  // ✅ STORE the authTokenId for later use
+      
       document.getElementById("qr-image").src = data.qr;
       document.getElementById("qr-container").classList.remove("hidden");
 
       // Poll every 2 seconds for auth
       const poll = setInterval(async () => {
-        const status = await fetch(`https://mint-rps-duel-production.up.railway.app/check-auth/${data.uuid}`).then(res => res.json());
+        const status = await fetch(`https://mint-rps-duel-production.up.railway.app/check-auth/${authTokenId}`).then(res => res.json());
         if (status.address) {
           clearInterval(poll);
           wallet = status.address;
@@ -93,7 +97,7 @@
       const res = await fetch("https://mint-rps-duel-production.up.railway.app/mint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet })
+        body: JSON.stringify({ authTokenId })
       });
 
       const result = await res.json();
