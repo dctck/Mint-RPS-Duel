@@ -133,3 +133,100 @@ app.post("/mint", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });
+
+//Get check auth
+
+app.get("/check-auth/:authTokenId", async (req, res) => {
+  const { authTokenId } = req.params;
+
+  const query = gql`
+    query($id: String!) {
+      AuthToken(id: $id) {
+        wallet {
+          id
+        }
+      }
+    }
+  `;
+
+  try {
+    const { AuthToken } = await request({
+      url: PLATFORM_URL,
+      document: query,
+      variables: { id: authTokenId },
+      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+
+    if (AuthToken?.wallet?.id) {
+      res.json({ address: AuthToken.wallet.id });
+    } else {
+      res.json({ address: null });
+    }
+  } catch (err) {
+    console.error("Check auth error:", err);
+    res.status(500).json({ error: "Failed to check auth" });
+  }
+});
+
+//get balance from wallet
+
+app.get("/balances/:wallet", async (req, res) => {
+  const { wallet } = req.params;
+
+  const query = gql`
+    query($collectionId: BigInt!, $wallet: String!) {
+      TokensByOwner(collectionId: $collectionId, address: $wallet) {
+        tokenId
+        balance
+      }
+    }
+  `;
+
+  try {
+    const { TokensByOwner } = await request({
+      url: PLATFORM_URL,
+      document: query,
+      variables: { collectionId: COLLECTION_ID, wallet },
+      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+
+    const balances = {};
+    TokensByOwner.forEach(({ tokenId, balance }) => {
+      balances[tokenId] = parseInt(balance, 10);
+    });
+
+    res.json(balances);
+  } catch (err) {
+    console.error("Balance fetch error:", err);
+    res.status(500).json({ error: "Could not get balances" });
+  }
+});
+
+// returns supply of each NFT
+
+app.get("/supply", async (req, res) => {
+  const query = gql`
+    query($collectionId: BigInt!) {
+      Tokens(collectionId: $collectionId) {
+        totalSupply
+      }
+    }
+  `;
+
+  try {
+    const { Tokens } = await request({
+      url: PLATFORM_URL,
+      document: query,
+      variables: { collectionId: COLLECTION_ID },
+      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+
+    const totalMinted = Tokens.reduce((sum, t) => sum + parseInt(t.totalSupply, 10), 0);
+    const remaining = 150 - totalMinted;
+
+    res.json({ remaining });
+  } catch (err) {
+    console.error("Supply error:", err);
+    res.status(500).json({ error: "Could not fetch supply" });
+  }
+});
