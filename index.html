@@ -53,6 +53,8 @@
       const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
       const data = await res.json();
 
+      console.log("Auth token ID:", data.id); //debuging
+
       authTokenId = data.id;  // ✅ STORE the authTokenId for later use
       
       document.getElementById("qr-image").src = data.qr;
