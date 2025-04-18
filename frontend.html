@@ -1,1 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mint a Mystery Token</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; background: #f5f5f5; }
+    .hidden { display: none; }
+    button { padding: 1em; font-size: 1em; margin-top: 1em; }
+    #mint-result { font-size: 1.2em; margin-top: 1em; }
+  </style>
+</head>
+<body>
 
+  <h1>🎮 Rock, Paper, Scissors: Mint Game</h1>
+
+  <!-- Step 1: Connect Wallet -->
+  <button id="connect-btn">Connect Wallet</button>
+  <div id="wallet-info" class="hidden">
+    <p><strong>Wallet:</strong> <span id="wallet-address"></span></p>
+  </div>
+
+  <!-- Step 2: Token Balances -->
+  <div id="balances" class="hidden">
+    <h2>Your Tokens</h2>
+    <p>🪨 Rock: <span id="rock-count">0</span></p>
+    <p>📄 Paper: <span id="paper-count">0</span></p>
+    <p>✂️ Scissors: <span id="scissors-count">0</span></p>
+  </div>
+
+  <!-- Step 3: Minting Progress -->
+  <div id="progress" class="hidden">
+    <h2>Supply Left</h2>
+    <p><span id="minted-count">0</span> / 150 minted</p>
+  </div>
+
+  <!-- Step 4: Mint Button -->
+  <button id="mint-btn" class="hidden">Mint Now (10 cENJ)</button>
+  <p id="mint-result"></p>
+
+  <!-- Step 5: QR Code for Auth -->
+  <div id="qr-container" class="hidden">
+    <h3>Scan QR to Connect Wallet</h3>
+    <img id="qr-image" src="" alt="Scan QR" />
+  </div>
+
+  <script>
+    let wallet = null;
+
+    // Click to start auth flow
+    document.getElementById("connect-btn").addEventListener("click", async () => {
+      const res = await fetch("/start-auth");
+      const data = await res.json();
+      document.getElementById("qr-image").src = data.qr;
+      document.getElementById("qr-container").classList.remove("hidden");
+
+      // Poll every 2 seconds for auth
+      const poll = setInterval(async () => {
+        const status = await fetch(`/check-auth/${data.uuid}`).then(res => res.json());
+        if (status.address) {
+          clearInterval(poll);
+          wallet = status.address;
+          document.getElementById("wallet-address").textContent = wallet;
+          document.getElementById("wallet-info").classList.remove("hidden");
+          document.getElementById("balances").classList.remove("hidden");
+          document.getElementById("progress").classList.remove("hidden");
+          document.getElementById("mint-btn").classList.remove("hidden");
+          document.getElementById("qr-container").classList.add("hidden");
+          loadBalances();
+        }
+      }, 2000);
+    });
+
+    async function loadBalances() {
+      const [tokens, supply] = await Promise.all([
+        fetch(`/balances/${wallet}`).then(r => r.json()),
+        fetch("/supply").then(r => r.json())
+      ]);
+
+      document.getElementById("rock-count").textContent = tokens["1"] || 0;
+      document.getElementById("paper-count").textContent = tokens["2"] || 0;
+      document.getElementById("scissors-count").textContent = tokens["3"] || 0;
+
+      document.getElementById("minted-count").textContent = 150 - supply.remaining;
+      if (supply.remaining === 0) {
+        document.getElementById("mint-btn").disabled = true;
+        document.getElementById("mint-btn").textContent = "Sold Out";
+      }
+    }
+
+    // Mint button handler
+    document.getElementById("mint-btn").addEventListener("click", async () => {
+      const res = await fetch("/mint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet })
+      });
+
+      const result = await res.json();
+      document.getElementById("mint-result").textContent = `You got: ${result.tokenName}! 🎉`;
+      loadBalances();
+    });
+  </script>
+
+</body>
+</html>
