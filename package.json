@@ -1,6 +1,7 @@
 {
   "name": "enjin-minting-game",
   "version": "1.0.0",
+  "description": "Simple minting backend using Enjin",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
