@@ -44,26 +44,26 @@
     <img id="qr-image" src="" alt="Scan QR" />
   </div>
 
-  <script>
+ <script>
   let wallet = null;
   let authTokenId = null;
 
-    document.getElementById("connect-btn").addEventListener("click", async () => {
-      try {
-        const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
-        const data = await res.json();
-  
-        console.log("🔑 Received start-auth response:", data);
-  
-        if (!data.id || !data.qr) {
-          console.error("❌ Missing authTokenId or QR code!");
-          return;
-        }
+  document.getElementById("connect-btn").addEventListener("click", async () => {
+    try {
+      const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
+      const data = await res.json();
 
-        authTokenId = data.id;
+      console.log("🔑 Received start-auth response:", data);
 
-        document.getElementById("qr-image").src = data.qr;
-        document.getElementById("qr-container").classList.remove("hidden");
+      if (!data.id || !data.qr) {
+        console.error("❌ Missing authTokenId or QR code!");
+        return;
+      }
+
+      authTokenId = data.id;
+
+      document.getElementById("qr-image").src = data.qr;
+      document.getElementById("qr-container").classList.remove("hidden");
 
       // Poll every 2 seconds for auth
       const poll = setInterval(async () => {
@@ -72,56 +72,57 @@
           const status = await check.json();
 
           console.log("🔄 Polling status:", status);
-        
-        if (status.address) {
-          clearInterval(poll);
-          wallet = status.address;
-          document.getElementById("wallet-address").textContent = wallet;
-          document.getElementById("wallet-info").classList.remove("hidden");
-          document.getElementById("balances").classList.remove("hidden");
-          document.getElementById("progress").classList.remove("hidden");
-          document.getElementById("mint-btn").classList.remove("hidden");
-          document.getElementById("qr-container").classList.add("hidden");
-          loadBalances();
-        } 
-        
-      } catch (err) {
-        console.error("❌ Polling error:", err);
+
+          if (status.address) {
+            clearInterval(poll);
+            wallet = status.address;
+            document.getElementById("wallet-address").textContent = wallet;
+            document.getElementById("wallet-info").classList.remove("hidden");
+            document.getElementById("balances").classList.remove("hidden");
+            document.getElementById("progress").classList.remove("hidden");
+            document.getElementById("mint-btn").classList.remove("hidden");
+            document.getElementById("qr-container").classList.add("hidden");
+            loadBalances();
+          }
+        } catch (err) {
+          console.error("❌ Polling error:", err);
         }
       }, 2000);
-    }catch (err) {
+    } catch (err) {
       console.error("❌ Failed to start auth session:", err);
-
-    async function loadBalances() {
-      const [tokens, supply] = await Promise.all([
-        fetch(`https://mint-rps-duel-production.up.railway.app/balances/${wallet}`).then(r => r.json()),
-        fetch("https://mint-rps-duel-production.up.railway.app/supply").then(r => r.json())
-      ]);
-
-      document.getElementById("rock-count").textContent = tokens["1"] || 0;
-      document.getElementById("paper-count").textContent = tokens["2"] || 0;
-      document.getElementById("scissors-count").textContent = tokens["3"] || 0;
-
-      document.getElementById("minted-count").textContent = 150 - supply.remaining;
-      if (supply.remaining === 0) {
-        document.getElementById("mint-btn").disabled = true;
-        document.getElementById("mint-btn").textContent = "Sold Out";
-      }
     }
+  });
 
-    // Mint button handler
-    document.getElementById("mint-btn").addEventListener("click", async () => {
-      const res = await fetch("https://mint-rps-duel-production.up.railway.app/mint", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ authTokenId })
-      });
+  async function loadBalances() {
+    const [tokens, supply] = await Promise.all([
+      fetch(`https://mint-rps-duel-production.up.railway.app/balances/${wallet}`).then(r => r.json()),
+      fetch("https://mint-rps-duel-production.up.railway.app/supply").then(r => r.json())
+    ]);
 
-      const result = await res.json();
-      document.getElementById("mint-result").textContent = `You got: ${result.tokenName}! 🎉`;
-      loadBalances();
+    document.getElementById("rock-count").textContent = tokens["1"] || 0;
+    document.getElementById("paper-count").textContent = tokens["2"] || 0;
+    document.getElementById("scissors-count").textContent = tokens["3"] || 0;
+
+    document.getElementById("minted-count").textContent = 150 - supply.remaining;
+    if (supply.remaining === 0) {
+      document.getElementById("mint-btn").disabled = true;
+      document.getElementById("mint-btn").textContent = "Sold Out";
+    }
+  }
+
+  // Mint button handler
+  document.getElementById("mint-btn").addEventListener("click", async () => {
+    const res = await fetch("https://mint-rps-duel-production.up.railway.app/mint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ authTokenId })
     });
-  </script>
+
+    const result = await res.json();
+    document.getElementById("mint-result").textContent = `You got: ${result.tokenName}! 🎉`;
+    loadBalances();
+  });
+</script>
 
 </body>
 </html>
