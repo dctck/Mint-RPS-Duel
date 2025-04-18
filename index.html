@@ -45,24 +45,34 @@
   </div>
 
   <script>
-    let wallet = null;
-    let authTokenId = null;
+  let wallet = null;
+  let authTokenId = null;
 
-    // Click to start auth flow
     document.getElementById("connect-btn").addEventListener("click", async () => {
-      const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
-      const data = await res.json();
+      try {
+        const res = await fetch("https://mint-rps-duel-production.up.railway.app/start-auth");
+        const data = await res.json();
+  
+        console.log("🔑 Received start-auth response:", data);
+  
+        if (!data.id || !data.qr) {
+          console.error("❌ Missing authTokenId or QR code!");
+          return;
+        }
 
-      console.log("Auth token ID:", data.id); //debuging
+        authTokenId = data.id;
 
-      authTokenId = data.id;  // ✅ STORE the authTokenId for later use
-      
-      document.getElementById("qr-image").src = data.qr;
-      document.getElementById("qr-container").classList.remove("hidden");
+        document.getElementById("qr-image").src = data.qr;
+        document.getElementById("qr-container").classList.remove("hidden");
 
       // Poll every 2 seconds for auth
       const poll = setInterval(async () => {
-        const status = await fetch(`https://mint-rps-duel-production.up.railway.app/check-auth/${authTokenId}`).then(res => res.json());
+        try {
+          const check = await fetch(`https://mint-rps-duel-production.up.railway.app/check-auth/${authTokenId}`);
+          const status = await check.json();
+
+          console.log("🔄 Polling status:", status);
+        
         if (status.address) {
           clearInterval(poll);
           wallet = status.address;
@@ -73,9 +83,14 @@
           document.getElementById("mint-btn").classList.remove("hidden");
           document.getElementById("qr-container").classList.add("hidden");
           loadBalances();
+        } 
+        
+      } catch (err) {
+        console.error("❌ Polling error:", err);
         }
       }, 2000);
-    });
+    }catch (err) {
+      console.error("❌ Failed to start auth session:", err);
 
     async function loadBalances() {
       const [tokens, supply] = await Promise.all([
