@@ -133,10 +133,6 @@ app.post("/mint", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
-});
-
 //Get check auth
 
 app.get("/check-auth/:authTokenId", async (req, res) => {
