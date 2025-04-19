@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RPS NFT Mint</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecJ7GZCzTVP4MLgvWIJDbFTQrUgjLtYczUGRsgAadXc5pZlK/wtr3r56gN5v6T/v5+nZ998hG3J4z47LQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         /* Custom CSS for the 3D flip effect and card appearance */
         .perspective { perspective: 1000px; }
@@ -20,6 +21,10 @@
         /* Ensure elements don't overlap awkwardly */
         body { display: flex; flex-direction: column; }
         #app { flex-grow: 1; }
+        /* Style for the div where QR code will be generated */
+        #qr-code-display { width: 200px; height: 200px; margin: 0 auto; }
+        #qr-code-display img { width: 100%; height: 100%; display: block; } /* Ensure generated img fits */
+
     </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
@@ -40,7 +45,7 @@
 
         <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl">
             <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
-            <img id="qr-image" src="" alt="Scan QR Code" class="mx-auto" />
+            <div id="qr-code-display"></div>
             <p class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
         </div>
 
@@ -96,16 +101,17 @@
 
         // --- State Variables ---
         let userWallet = null;
-        let authTokenId = null;
+        let authTokenId = null; // Will store the Auth Session ID
         let isConnected = false;
         let pollIntervalId = null;
+        let qrCodeInstance = null; // To hold the QRCode library instance
 
         // --- DOM Element References ---
         const connectBtn = document.getElementById("connect-btn");
         const buyButton = document.getElementById("buy-button");
         const dismissButton = document.getElementById("dismiss-button");
         const qrContainer = document.getElementById("qr-container");
-        const qrImage = document.getElementById("qr-image");
+        const qrCodeDisplayDiv = document.getElementById("qr-code-display"); // Div for QR code
         const connectionStatus = document.getElementById("connection-status");
         const walletInfo = document.getElementById("wallet-info");
         const walletAddressSpan = document.getElementById("wallet-address");
@@ -124,7 +130,10 @@
         // --- Helper Functions ---
         function shortenAddress(address) {
             if (!address || address.length < 10) return address;
-            return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+            // Extract the 0x part if it's a CAIP-10 ID
+            const parts = address.split(':');
+            const addr = parts[parts.length - 1];
+            return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
         }
         function wait(ms) { // Added wait function for async delays
              return new Promise(resolve => setTimeout(resolve, ms));
@@ -135,9 +144,9 @@
         function updateUI() {
             if (isConnected && userWallet) {
                 connectionStatus.textContent = "Status: Connected";
-                walletAddressSpan.textContent = shortenAddress(userWallet);
+                walletAddressSpan.textContent = shortenAddress(userWallet); // Use helper
                 connectBtn.classList.add('hidden');
-                qrContainer.classList.add('hidden');
+                qrContainer.classList.add('hidden'); // Hide QR when connected
                 walletInfo.classList.remove('hidden');
                 balancesDiv.classList.remove('hidden');
                 progressDiv.classList.remove('hidden');
@@ -146,13 +155,16 @@
             } else {
                 connectionStatus.textContent = "Status: Not Connected";
                 connectBtn.classList.remove('hidden');
+                connectBtn.disabled = false; // Re-enable connect button
                 walletInfo.classList.add('hidden');
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
                 buyButton.classList.add('hidden');
-                cardContainer.classList.add('hidden'); // Hide cards if disconnected
+                cardContainer.classList.add('hidden'); // Hide card if disconnected
                 dismissButton.classList.add('hidden');
                  mintResult.textContent = ''; // Clear result
+                 // Don't hide QR container immediately on disconnect, only if connecting
+                 // qrContainer.classList.add('hidden');
             }
             // Clear loader if it was showing
             mintLoader.classList.add('hidden');
@@ -165,6 +177,8 @@
             connectionStatus.textContent = "Status: Connecting...";
             connectBtn.disabled = true;
             mintResult.textContent = ''; // Clear previous results
+            qrContainer.classList.add('hidden'); // Hide old QR if any
+
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -172,13 +186,34 @@
 
                 console.log("🔑 Received start-auth response:", data);
 
-                if (!data.id || !data.qr) {
-                    throw new Error("Missing authTokenId or QR code from backend!");
+                // Expecting { id, state, authenticationUrl }
+                if (!data.id || !data.authenticationUrl) {
+                    throw new Error("Missing ID or authenticationUrl from backend!");
                 }
 
-                authTokenId = data.id;
-                qrImage.src = data.qr; // Display QR code (should be data URI)
-                qrContainer.classList.remove("hidden");
+                authTokenId = data.id; // Store the session ID
+
+                // --- Generate QR Code from authenticationUrl ---
+                qrCodeDisplayDiv.innerHTML = ''; // Clear previous QR code
+                try {
+                    // Use the QRCode library (loaded from CDN)
+                    // QRCode constructor takes the DOM element (not ID) and options
+                    qrCodeInstance = new QRCode(qrCodeDisplayDiv, {
+                        text: data.authenticationUrl,
+                        width: 200,
+                        height: 200,
+                        colorDark : "#000000",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.H // High correction level
+                    });
+                    console.log("QR Code generated for:", data.authenticationUrl);
+                } catch(qrError) {
+                     console.error("❌ Failed to generate QR Code:", qrError);
+                     throw new Error("Could not generate QR code.");
+                }
+                // --- End QR Code Generation ---
+
+                qrContainer.classList.remove("hidden"); // Show container with new QR
                 connectionStatus.textContent = "Status: Scan QR Code";
 
                 // Start polling
@@ -197,32 +232,43 @@
             // Clear any existing interval
             if (pollIntervalId) clearInterval(pollIntervalId);
 
+            console.log(`Starting polling for authSessionId: ${authTokenId}`);
             pollIntervalId = setInterval(async () => {
                 if (!authTokenId) {
+                    console.log("Polling stopped: No authTokenId.");
                     clearInterval(pollIntervalId);
                     return;
                 }
                 try {
+                    // Use the correct variable name for the session ID in the URL
                     const check = await fetch(`${backendUrl}/check-auth/${authTokenId}`);
+                    // Stop polling if fetch fails consistently? Maybe add a counter?
                     if (!check.ok) {
-                         console.warn(`Polling check failed: ${check.status}`);
-                         return; // Continue polling for now
+                        // 404 might be expected if session not found/linked yet
+                        if (check.status !== 404) {
+                           console.warn(`Polling check failed: ${check.status}`);
+                        } else {
+                             console.log("Polling: Auth session not found or linked yet (404).");
+                        }
+                        return; // Continue polling
                     }
                     const status = await check.json();
 
-                    console.log("🔄 Polling status:", status);
+                    // console.log("🔄 Polling status:", status); // Verbose log
 
                     if (status.address) {
                         // SUCCESS! Wallet Connected
+                        console.log("Polling success: Wallet connected!", status.address);
                         clearInterval(pollIntervalId);
                         pollIntervalId = null;
-                        userWallet = status.address;
+                        userWallet = status.address; // Store the CAIP-10 address
                         isConnected = true;
                         updateUI(); // Update UI to connected state
                     }
-                    // else: continue polling
+                    // else: continue polling (address is null)
                 } catch (err) {
                     console.error("❌ Polling error:", err);
+                    // Potentially stop polling after too many errors?
                 }
             }, pollingInterval);
         }
@@ -233,12 +279,17 @@
              console.log("Loading balances and supply...");
              try {
                  // Fetch both concurrently
+                 // Pass the userWallet (CAIP-10 ID) directly to the balances endpoint
                  const [tokensRes, supplyRes] = await Promise.all([
-                     fetch(`${backendUrl}/balances/${userWallet}`),
+                     fetch(`${backendUrl}/balances/${encodeURIComponent(userWallet)}`), // Ensure wallet ID is URL encoded
                      fetch(`${backendUrl}/supply`)
                  ]);
 
                  if (!tokensRes.ok || !supplyRes.ok) {
+                     // Log detailed error if possible
+                     const tokensError = !tokensRes.ok ? await tokensRes.text() : '';
+                     const supplyError = !supplyRes.ok ? await supplyRes.text() : '';
+                     console.error(`Fetch error: Balances=${tokensRes.status} ${tokensError}, Supply=${supplyRes.status} ${supplyError}`);
                      throw new Error("Failed to fetch balances or supply");
                  }
 
@@ -272,55 +323,29 @@
 
         // 4. Buy Booster / Mint Token
         async function buyPack() {
-            if (!isConnected || !authTokenId) {
-                 mintResult.textContent = "Error: Not connected properly.";
-                 return;
-            }
-
+            // Use authTokenId (which holds the session ID)
+            if (!isConnected || !authTokenId) { mintResult.textContent = "Error: Not connected properly."; return; }
             console.log("🚀 Initiating mint process...");
             buyButton.disabled = true;
             mintLoader.classList.remove('hidden');
             mintResult.textContent = 'Minting... Please approve payment in wallet.';
-            cardContainer.classList.add('hidden'); // Hide previous card reveal
+            cardContainer.classList.add('hidden');
             dismissButton.classList.add('hidden');
-            resetCardsState(); // Reset card state before minting
-
+            resetCardsState();
             try {
-                const res = await fetch(`${backendUrl}/mint`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ authTokenId }) // Send the auth token ID
-                });
-
-                if (!res.ok) {
-                    let errorMsg = `Mint request failed! Status: ${res.status}`;
-                    try {
-                        const errorData = await res.json();
-                        errorMsg = errorData.details || errorData.error || errorMsg; // Use backend details if available
-                    } catch (e) { /* Ignore if response isn't JSON */ }
-                    throw new Error(errorMsg);
-                }
-
+                const res = await fetch(`${backendUrl}/mint`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ authTokenId }) }); // Send session ID
+                if (!res.ok) { let errorMsg = `Mint request failed! Status: ${res.status}`; try { const errorData = await res.json(); errorMsg = errorData.details || errorData.error || errorMsg; } catch (e) { /* Ignore */ } throw new Error(errorMsg); }
                 const result = await res.json();
                 console.log("✅ Mint successful:", result);
-
                 if (result.success && Array.isArray(result.mintedTokens) && result.mintedTokens.length > 0) {
                     mintResult.textContent = `Success! Opened a pack!`;
-                    revealMultipleCards(result.mintedTokens); // Trigger card reveal animation for the array
-                    loadBalancesAndSupply(); // Refresh data after minting
-                } else {
-                     // Handle cases where success is true but array is missing/empty, or success is false
-                     throw new Error(result.details || result.error || "Mint failed: Invalid response from server.");
-                }
-
-            } catch (err) {
-                console.error("❌ Minting error:", err);
-                mintResult.textContent = `Error: ${err.message}`;
-                 // Re-enable buy button only if not sold out
-                 loadBalancesAndSupply();
-            } finally {
-                 mintLoader.classList.add('hidden'); // Hide loader regardless of outcome
-            }
+                    revealMultipleCards(result.mintedTokens);
+                    // Wait a short moment for blockchain update before reloading balances
+                    await wait(2000);
+                    loadBalancesAndSupply();
+                } else { throw new Error(result.details || result.error || "Mint failed: Invalid response from server."); }
+            } catch (err) { console.error("❌ Minting error:", err); mintResult.textContent = `Error: ${err.message}`; loadBalancesAndSupply(); } // Reload supply info even on error
+            finally { mintLoader.classList.add('hidden'); }
         }
 
         // 5. Reset state of all cards
@@ -329,48 +354,45 @@
                 card.classList.remove('flipped', 'card-appear');
                 card.style.animationDelay = '0s';
                 const front = card.querySelector('.card-front');
-                if (front) front.textContent = ''; // Clear previous content
+                if (front) front.textContent = '';
             });
         }
-
 
         // 6. Reveal Multiple Cards Animation
         async function revealMultipleCards(mintedTokens) {
             if (!Array.isArray(mintedTokens)) return;
-
-            resetCardsState(); // Ensure cards are reset before reveal
-
+            resetCardsState();
             const cardFronts = cardContainer.querySelectorAll('.card-front');
+            // Ensure we only process up to the number of card elements available
+            const cardsToProcess = Math.min(mintedTokens.length, revealCards.length);
 
             // 1. Set card front content (hidden initially)
-            mintedTokens.slice(0, 5).forEach((token, index) => { // Ensure we don't exceed 5 cards
-                 if (revealCards[index]) { // Check if card element exists
+            for (let i = 0; i < cardsToProcess; i++) {
+                 const token = mintedTokens[i];
+                 const cardElement = revealCards[i];
+                 const frontElement = cardFronts[i];
+                 if (cardElement && frontElement) {
                     const tokenInfo = tokenMap[token.id];
-                    const front = cardFronts[index];
-                    if (front) {
-                        front.textContent = tokenInfo ? tokenInfo.emoji : '?';
-                    }
+                    frontElement.textContent = tokenInfo ? tokenInfo.emoji : '?';
                  }
-            });
+            }
 
             // 2. Make container visible
             cardContainer.classList.remove('hidden');
 
             // 3. Trigger sequential appear and flip animations
-            for (let i = 0; i < Math.min(mintedTokens.length, 5); i++) {
+            for (let i = 0; i < cardsToProcess; i++) {
                  if (revealCards[i]) {
-                     // Stagger appear animation
                      revealCards[i].style.animationDelay = `${i * cardAppearDelay}ms`;
                      revealCards[i].classList.add('card-appear');
                  }
             }
 
             // Wait for appear animations to start settling
-            await wait(Math.min(mintedTokens.length, 5) * cardAppearDelay + 100);
+            await wait(cardsToProcess * cardAppearDelay + 100);
 
-            for (let i = 0; i < Math.min(mintedTokens.length, 5); i++) {
+            for (let i = 0; i < cardsToProcess; i++) {
                  if (revealCards[i]) {
-                     // Stagger flip animation
                      await wait(cardRevealDelay);
                      revealCards[i].classList.add('flipped');
                  }
@@ -385,19 +407,15 @@
         function dismissCards() {
             cardContainer.classList.add('hidden');
             dismissButton.classList.add('hidden');
-            resetCardsState(); // Reset card state
-            mintResult.textContent = ''; // Clear result text
-            // Re-enable buy button only if not sold out
+            resetCardsState();
+            mintResult.textContent = '';
             loadBalancesAndSupply();
         }
-
 
         // --- Initial Setup ---
         connectBtn.addEventListener("click", connectWallet);
         buyButton.addEventListener("click", buyPack);
-        dismissButton.addEventListener("click", dismissCards); // Changed listener
-
-        // Initial UI state
+        dismissButton.addEventListener("click", dismissCards);
         updateUI();
 
     </script>
