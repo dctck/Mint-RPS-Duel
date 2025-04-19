@@ -1,19 +1,29 @@
-FROM rust:1.74
+FROM rust:1.74-slim
 
-# Set up working directory
+# Install required packages for building Rust projects
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    pkg-config \
+    libssl-dev \
+    libclang-dev \
+    cmake \
+    clang \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set work directory
 WORKDIR /app
 
-# Install dependencies
-RUN apt-get update && apt-get install -y pkg-config libssl-dev
+# Clone Wallet Daemon repo
+RUN git clone https://github.com/enjin/wallet-daemon .
 
-# Clone the wallet daemon repo
-RUN git clone https://github.com/enjin/wallet-daemon.git .
-
-# Build the daemon
+# Build it
 RUN cargo build --release
 
-# Expose port
+# Expose port used by Wallet Daemon
 EXPOSE 8282
 
-# Run the wallet daemon
+# Run the binary
 CMD ["./target/release/enjin-wallet-daemon"]
