@@ -24,9 +24,7 @@
 </head>
 <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
 
-    <div id="app" class="text-center w-full max-w-lg mx-auto">
-
-        <h1 class="text-3xl font-bold mb-6">🎮 RPS NFT Mint Game</h1>
+    <div id="app" class="text-center w-full max-w-3xl mx-auto"> <h1 class="text-3xl font-bold mb-6">🎮 RPS NFT Mint Game</h1>
 
         <div id="connection-status" class="mb-4 text-lg">
             Status: Not Connected
@@ -70,19 +68,16 @@
         </div>
 
 
-        <div id="card-container" class="hidden mt-6 flex flex-wrap justify-center gap-4">
-            <div id="reveal-card" class="card perspective w-32 h-48 md:w-40 md:h-60">
-                <div class="card-inner shadow-xl">
-                    <div class="card-back bg-purple-600 text-white text-5xl font-bold rounded-lg flex justify-center items-center">?</div>
-                    <div class="card-front bg-white text-6xl md:text-7xl rounded-lg flex justify-center items-center">
-                        {/* Emoji will be placed here */}
-                    </div>
-                </div>
-            </div>
+        <div id="card-container" class="hidden mt-6 flex flex-wrap justify-center gap-3 md:gap-4">
+            <div class="reveal-card-item card perspective w-24 h-36 md:w-28 md:h-44 lg:w-32 lg:h-48"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-4xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-5xl md:text-6xl rounded-lg flex justify-center items-center"></div></div></div>
+            <div class="reveal-card-item card perspective w-24 h-36 md:w-28 md:h-44 lg:w-32 lg:h-48"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-4xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-5xl md:text-6xl rounded-lg flex justify-center items-center"></div></div></div>
+            <div class="reveal-card-item card perspective w-24 h-36 md:w-28 md:h-44 lg:w-32 lg:h-48"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-4xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-5xl md:text-6xl rounded-lg flex justify-center items-center"></div></div></div>
+            <div class="reveal-card-item card perspective w-24 h-36 md:w-28 md:h-44 lg:w-32 lg:h-48"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-4xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-5xl md:text-6xl rounded-lg flex justify-center items-center"></div></div></div>
+            <div class="reveal-card-item card perspective w-24 h-36 md:w-28 md:h-44 lg:w-32 lg:h-48"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-4xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-5xl md:text-6xl rounded-lg flex justify-center items-center"></div></div></div>
         </div>
 
         <button id="dismiss-button" class="hidden mt-6 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg shadow transition duration-200">
-            Dismiss
+            Dismiss Pack
         </button>
     </div>
 
@@ -95,6 +90,9 @@
             2: { name: "Paper", emoji: "📄" },
             3: { name: "Scissors", emoji: "✂️" }
         };
+        const cardAppearDelay = 150; // Delay between cards appearing (ms)
+        const cardRevealDelay = 300; // Delay between cards flipping (ms)
+
 
         // --- State Variables ---
         let userWallet = null;
@@ -121,14 +119,17 @@
         const mintLoader = document.getElementById("mint-loader");
         const mintResult = document.getElementById("mint-result");
         const cardContainer = document.getElementById("card-container");
-        const revealCard = document.getElementById("reveal-card");
-        const revealCardFront = revealCard.querySelector('.card-front');
+        const revealCards = cardContainer.querySelectorAll('.reveal-card-item'); // Select all 5 card elements
 
         // --- Helper Functions ---
         function shortenAddress(address) {
             if (!address || address.length < 10) return address;
             return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
         }
+        function wait(ms) { // Added wait function for async delays
+             return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
 
         // --- UI Update Functions ---
         function updateUI() {
@@ -149,7 +150,7 @@
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
                 buyButton.classList.add('hidden');
-                cardContainer.classList.add('hidden'); // Hide card if disconnected
+                cardContainer.classList.add('hidden'); // Hide cards if disconnected
                 dismissButton.classList.add('hidden');
                  mintResult.textContent = ''; // Clear result
             }
@@ -203,10 +204,8 @@
                 }
                 try {
                     const check = await fetch(`${backendUrl}/check-auth/${authTokenId}`);
-                    // Stop polling if fetch fails (e.g., server down) after a few tries? (Optional)
                     if (!check.ok) {
                          console.warn(`Polling check failed: ${check.status}`);
-                         // Decide if/when to stop polling on errors
                          return; // Continue polling for now
                     }
                     const status = await check.json();
@@ -224,9 +223,6 @@
                     // else: continue polling
                 } catch (err) {
                     console.error("❌ Polling error:", err);
-                    // Stop polling on network error?
-                    // clearInterval(pollIntervalId);
-                    // connectionStatus.textContent = "Polling error. Refresh?";
                 }
             }, pollingInterval);
         }
@@ -260,7 +256,7 @@
                  mintedCountSpan.textContent = totalMinted;
 
                  // Disable mint button if sold out
-                 if (supply.remaining === 0) {
+                 if (supply.remaining <= 0) { // Check if less than or equal to 0
                      buyButton.disabled = true;
                      buyButton.textContent = "Sold Out";
                  } else {
@@ -270,7 +266,6 @@
 
              } catch (err) {
                  console.error("❌ Error loading balances/supply:", err);
-                 // Show error to user?
                  mintResult.textContent = "Error loading game data.";
              }
         }
@@ -285,10 +280,10 @@
             console.log("🚀 Initiating mint process...");
             buyButton.disabled = true;
             mintLoader.classList.remove('hidden');
-            mintResult.textContent = 'Minting... Please approve in wallet.';
+            mintResult.textContent = 'Minting... Please approve payment in wallet.';
             cardContainer.classList.add('hidden'); // Hide previous card reveal
             dismissButton.classList.add('hidden');
-            revealCard.classList.remove('flipped'); // Reset card flip
+            resetCardsState(); // Reset card state before minting
 
             try {
                 const res = await fetch(`${backendUrl}/mint`, {
@@ -298,11 +293,10 @@
                 });
 
                 if (!res.ok) {
-                    // Try to get error message from backend response
                     let errorMsg = `Mint request failed! Status: ${res.status}`;
                     try {
                         const errorData = await res.json();
-                        errorMsg = errorData.error || errorMsg;
+                        errorMsg = errorData.details || errorData.error || errorMsg; // Use backend details if available
                     } catch (e) { /* Ignore if response isn't JSON */ }
                     throw new Error(errorMsg);
                 }
@@ -310,51 +304,88 @@
                 const result = await res.json();
                 console.log("✅ Mint successful:", result);
 
-                if (result.success && result.tokenId) {
-                    mintResult.textContent = `Success! You minted: ${result.tokenName}!`;
-                    revealCardResult(result.tokenId); // Trigger card reveal animation
+                if (result.success && Array.isArray(result.mintedTokens) && result.mintedTokens.length > 0) {
+                    mintResult.textContent = `Success! Opened a pack!`;
+                    revealMultipleCards(result.mintedTokens); // Trigger card reveal animation for the array
                     loadBalancesAndSupply(); // Refresh data after minting
                 } else {
-                    throw new Error(result.error || "Mint failed for an unknown reason.");
+                     // Handle cases where success is true but array is missing/empty, or success is false
+                     throw new Error(result.details || result.error || "Mint failed: Invalid response from server.");
                 }
 
             } catch (err) {
                 console.error("❌ Minting error:", err);
                 mintResult.textContent = `Error: ${err.message}`;
-                buyButton.disabled = false; // Re-enable button on error
+                 // Re-enable buy button only if not sold out
+                 loadBalancesAndSupply();
             } finally {
                  mintLoader.classList.add('hidden'); // Hide loader regardless of outcome
             }
         }
 
-        // 5. Reveal Card Animation
-        function revealCardResult(tokenId) {
-            const tokenInfo = tokenMap[tokenId];
-            if (!tokenInfo) {
-                console.error("Unknown token ID received:", tokenId);
-                revealCardFront.textContent = '?'; // Fallback
-            } else {
-                 revealCardFront.textContent = tokenInfo.emoji;
-            }
-
-            // Ensure card is visible and trigger flip
-            revealCard.classList.remove('card-appear'); // Reset appear animation if needed
-            cardContainer.classList.remove('hidden');
-            revealCard.style.animationDelay = '0s'; // Appear immediately
-            revealCard.classList.add('card-appear');
-
-            // Flip the card after a short delay
-            setTimeout(() => {
-                revealCard.classList.add('flipped');
-                dismissButton.classList.remove('hidden'); // Show dismiss button after flip starts
-            }, 500); // Delay before flipping
+        // 5. Reset state of all cards
+        function resetCardsState() {
+            revealCards.forEach(card => {
+                card.classList.remove('flipped', 'card-appear');
+                card.style.animationDelay = '0s';
+                const front = card.querySelector('.card-front');
+                if (front) front.textContent = ''; // Clear previous content
+            });
         }
 
-        // 6. Dismiss Revealed Card
-        function dismissCard() {
+
+        // 6. Reveal Multiple Cards Animation
+        async function revealMultipleCards(mintedTokens) {
+            if (!Array.isArray(mintedTokens)) return;
+
+            resetCardsState(); // Ensure cards are reset before reveal
+
+            const cardFronts = cardContainer.querySelectorAll('.card-front');
+
+            // 1. Set card front content (hidden initially)
+            mintedTokens.slice(0, 5).forEach((token, index) => { // Ensure we don't exceed 5 cards
+                 if (revealCards[index]) { // Check if card element exists
+                    const tokenInfo = tokenMap[token.id];
+                    const front = cardFronts[index];
+                    if (front) {
+                        front.textContent = tokenInfo ? tokenInfo.emoji : '?';
+                    }
+                 }
+            });
+
+            // 2. Make container visible
+            cardContainer.classList.remove('hidden');
+
+            // 3. Trigger sequential appear and flip animations
+            for (let i = 0; i < Math.min(mintedTokens.length, 5); i++) {
+                 if (revealCards[i]) {
+                     // Stagger appear animation
+                     revealCards[i].style.animationDelay = `${i * cardAppearDelay}ms`;
+                     revealCards[i].classList.add('card-appear');
+                 }
+            }
+
+            // Wait for appear animations to start settling
+            await wait(Math.min(mintedTokens.length, 5) * cardAppearDelay + 100);
+
+            for (let i = 0; i < Math.min(mintedTokens.length, 5); i++) {
+                 if (revealCards[i]) {
+                     // Stagger flip animation
+                     await wait(cardRevealDelay);
+                     revealCards[i].classList.add('flipped');
+                 }
+            }
+
+            // Show dismiss button after all flips are done
+            await wait(cardRevealDelay); // Small extra delay
+            dismissButton.classList.remove('hidden');
+        }
+
+        // 7. Dismiss Revealed Cards
+        function dismissCards() {
             cardContainer.classList.add('hidden');
             dismissButton.classList.add('hidden');
-            revealCard.classList.remove('flipped', 'card-appear'); // Reset card state
+            resetCardsState(); // Reset card state
             mintResult.textContent = ''; // Clear result text
             // Re-enable buy button only if not sold out
             loadBalancesAndSupply();
@@ -364,7 +395,7 @@
         // --- Initial Setup ---
         connectBtn.addEventListener("click", connectWallet);
         buyButton.addEventListener("click", buyPack);
-        dismissButton.addEventListener("click", dismissCard);
+        dismissButton.addEventListener("click", dismissCards); // Changed listener
 
         // Initial UI state
         updateUI();
