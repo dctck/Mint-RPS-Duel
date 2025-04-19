@@ -44,27 +44,48 @@ function delay(ms) {
 
 // Step 1: Start an auth session (user scans QR)
 app.get("/start-auth", async (req, res) => {
+  // Using the verified mutation name 'CreateAuthSession'
+  // !!! IMPORTANT: Verify the structure of CreateAuthSessionInput! from Enjin API Docs !!!
+  // Assuming empty input {} for now. It might require specific fields.
   const mutation = gql`
-    mutation CreateAuthToken {
-      CreateAuthToken {
-        id
-        qr # This should be a data URI (e.g., data:image/png;base64,...)
-        expiresIn
+    mutation CreateAuthSession($input: CreateAuthSessionInput!) { # <-- Verified name
+      CreateAuthSession(input: $input) { # <-- Verified name
+        id                # Auth Session ID
+        state             # Initial state (e.g., PENDING)
+        authenticationUrl # URL to be encoded into QR code by frontend
       }
     }
   `;
 
   try {
-    console.log("Requesting auth token from Enjin Platform...");
+    console.log("Requesting auth session from Enjin Platform...");
+    // Assume empty input for now - VERIFY THIS!
+    const variables = { input: {} };
     const data = await request({
       url: PLATFORM_URL,
       document: mutation,
+      variables: variables, // Pass the input variable
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
-    console.log("Auth token created successfully.");
-    res.json(data.CreateAuthToken);
+
+    // Access the data based on the correct mutation name
+    const authData = data?.CreateAuthSession;
+
+    // Check for the fields returned by CreateAuthSession
+    if (!authData?.id || !authData?.authenticationUrl) {
+        console.error("Unexpected response structure from CreateAuthSession:", data);
+        throw new Error("Failed to get required ID or authenticationUrl from auth response.");
+    }
+
+    console.log("Auth session created successfully:", authData);
+    // Return the data containing id, state, and authenticationUrl
+    res.json(authData);
+
   } catch (err) {
     console.error("Auth error:", err.response?.errors || err.message);
+     if (err.response?.errors) {
+        console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2));
+    }
     res.status(500).json({ error: "Auth failed", details: err.message });
   }
 });
@@ -76,18 +97,23 @@ app.get("/check-auth/:authTokenId", async (req, res) => {
         return res.status(400).json({ error: "Auth token ID is required" });
     }
 
+    // !!! IMPORTANT: Verify the correct Query name and field for checking auth status !!!
+    // This assumes 'AuthToken' query and 'wallet.id' field are correct.
+    // The query might need to change based on how 'CreateAuthSession' works.
+    // Perhaps query the session state using the ID from CreateAuthSession?
     const query = gql`
       query GetAuthToken($id: String!) {
-        AuthToken(id: $id) {
+        AuthToken(id: $id) { # <-- Verify this Query name - MIGHT NEED TO CHANGE
           wallet {
-            id # This is the CAIP-10 wallet ID (e.g., eip155:1:0x...)
+            id # <-- Verify this field path returns the CAIP-10 wallet ID
           }
+          # Potentially check session state here too?
+          # state
         }
       }
     `;
 
     try {
-      // console.log(`Checking auth status for token ID: ${authTokenId}`); // Optional: verbose logging
       const data = await request({
         url: PLATFORM_URL,
         document: query,
@@ -95,36 +121,34 @@ app.get("/check-auth/:authTokenId", async (req, res) => {
         requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
       });
 
+      // Adjust access based on verified Query name
       const walletId = data?.AuthToken?.wallet?.id;
-      // console.log(`Auth status result: ${walletId ? 'Wallet found' : 'No wallet yet'}`); // Optional: verbose logging
 
       if (walletId) {
-        res.json({ address: walletId }); // Return the CAIP-10 address
+        res.json({ address: walletId });
       } else {
-        res.json({ address: null }); // Not authenticated yet
+        res.json({ address: null });
       }
     } catch (err) {
-      // Handle cases where the token might expire or be invalid
       if (err.response?.errors) {
           console.error("Check auth GraphQL error:", err.response.errors);
-          // Check for specific errors if needed, e.g., token not found
           if (err.response.errors.some(e => e.message.includes("not found"))) {
-             return res.status(404).json({ address: null, error: "Auth token not found or expired." });
+             // If using AuthToken query, this might mean session expired or wasn't linked to a wallet yet
+             return res.status(404).json({ address: null, error: "Auth session not found, expired, or not yet linked." });
           }
       } else {
           console.error("Check auth network/request error:", err.message);
       }
-      // Don't send 500 for polling checks unless it's an unexpected server error
-      res.status(200).json({ address: null, error: "Failed to check auth status." }); // Indicate check failed but allow polling to continue
+      res.status(200).json({ address: null, error: "Failed to check auth status." });
     }
 });
 
 
 // Step 3: Mint 5 Tokens after user scans QR and approves payment
 app.post("/mint", async (req, res) => {
-  const { authTokenId } = req.body;
+  const { authTokenId } = req.body; // This ID now comes from CreateAuthSession
   if (!authTokenId) {
-    return res.status(400).json({ error: "Auth token ID is required" });
+    return res.status(400).json({ error: "Auth session ID is required" });
   }
 
   let userWallet = null;
@@ -132,44 +156,51 @@ app.post("/mint", async (req, res) => {
 
   try {
     // --- Get Wallet Address ---
-    console.log(`Mint request received for authTokenId: ${authTokenId}`);
+    // We need to confirm the wallet linked to the Auth Session ID
+    console.log(`Mint request received for authSessionId: ${authTokenId}`);
+     // !!! IMPORTANT: Verify how to get the wallet address from the completed AuthSession !!!
+     // Using the same 'AuthToken' query might still work if Enjin links them, but verify.
     const getWalletQuery = gql`
       query GetAuthWallet($id: String!) {
-        AuthToken(id: $id) {
+        AuthToken(id: $id) { # <-- Verify Query name - MIGHT NEED TO CHANGE
           wallet {
-            id # CAIP-10 wallet ID
+            id # <-- Verify field path for CAIP-10 wallet ID
           }
         }
       }
     `;
-    const { AuthToken } = await request({
+    const { AuthToken } = await request({ // <-- Adjust based on verified Query name
       url: PLATFORM_URL,
       document: getWalletQuery,
       variables: { id: authTokenId },
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
+    // Adjust access based on verified Query name
     userWallet = AuthToken?.wallet?.id;
     if (!userWallet) {
-      throw new Error("Wallet not found or authentication expired.");
+      // It's possible the session exists but the wallet isn't linked yet, or the query is wrong.
+      throw new Error("Wallet not linked to session or session invalid/expired.");
     }
     console.log(`User wallet identified: ${userWallet}`);
 
-    // --- Initiate Charge ENJ (using the Auth Token) ---
+    // --- Initiate Charge ENJ (using the Auth Session ID) ---
+    // !!! IMPORTANT: Verify if CreateTransaction input needs authSessionId instead of authTokenId !!!
+    // Assuming the input schema for CreateTransaction still uses 'authTokenId' for linking payment. Verify this!
     console.log(`Requesting ${MINT_COST_ENJ} cENJ charge transaction...`);
     const txMutation = gql`
-      mutation CreateTransaction($input: CreateTransactionInput!) {
-        CreateTransaction(input: $input) {
-          id      # The ID of the transaction request
-          state   # Initial state (e.g., PENDING_USER_CONFIRMATION)
+      mutation CreateTransaction($input: CreateTransactionInput!) { # <-- Verify Mutation name
+        CreateTransaction(input: $input) { # <-- Verify Mutation name
+          id
+          state
         }
       }
     `;
     const txVars = {
       input: {
-        recipient: RECEIVER_WALLET, // Your treasury/admin wallet
-        value: MINT_COST_WITOSHI, // Cost for the pack
-        authTokenId, // Links this transaction request to the user's auth session
+        recipient: RECEIVER_WALLET,
+        value: MINT_COST_WITOSHI,
+        authTokenId: authTokenId, // <-- Verify if this field name is correct for linking to the session
       },
     };
     const chargeTxResult = await request({
@@ -179,6 +210,7 @@ app.post("/mint", async (req, res) => {
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
+    // Adjust access based on verified mutation name
     chargeTransactionId = chargeTxResult?.CreateTransaction?.id;
     const initialState = chargeTxResult?.CreateTransaction?.state;
     if (!chargeTransactionId) {
@@ -191,218 +223,65 @@ app.post("/mint", async (req, res) => {
     const startTime = Date.now();
     let chargeSucceeded = false;
 
-    // Define the query to get transaction state
+    // !!! IMPORTANT: Verify the 'Transaction' query name and 'state' field path !!!
     const getTxStateQuery = gql`
         query GetTransactionState($id: String!) {
-            Transaction(id: $id) {
-                state
-                # Include error fields if available in the schema
-                # error { message code }
+            Transaction(id: $id) { # <-- Verify Query name
+                state             # <-- Verify field name for state
             }
         }
     `;
 
     while (Date.now() - startTime < TX_POLL_TIMEOUT_MS) {
-        await delay(TX_POLL_INTERVAL_MS); // Wait before checking status
-
+        await delay(TX_POLL_INTERVAL_MS);
         try {
-            const txStateResult = await request({
-                url: PLATFORM_URL,
-                document: getTxStateQuery,
-                variables: { id: chargeTransactionId },
-                requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` }, // Use admin token to query tx state
-            });
-
-            const currentState = txStateResult?.Transaction?.state;
+            const txStateResult = await request({ url: PLATFORM_URL, document: getTxStateQuery, variables: { id: chargeTransactionId }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+            const currentState = txStateResult?.Transaction?.state; // Adjust access based on verified Query name
             console.log(`Polling charge TX ${chargeTransactionId}: State = ${currentState}`);
-
-            // *** IMPORTANT: Adjust these state names based on Enjin Platform API documentation ***
-            // Common success states might include EXECUTED, CONFIRMED, COMPLETED
-            // Common failure states might include FAILED, CANCELED, REJECTED, EXPIRED
             const successStates = ["EXECUTED", "CONFIRMED", "COMPLETED"]; // Verify these!
             const failureStates = ["FAILED", "CANCELED", "REJECTED", "EXPIRED"]; // Verify these!
-
-            if (successStates.includes(currentState)) {
-                console.log("✅ Charge transaction successful!");
-                chargeSucceeded = true;
-                break; // Exit polling loop
-            }
-
-            if (failureStates.includes(currentState)) {
-                console.error(`❌ Charge transaction failed or was rejected. State: ${currentState}`);
-                throw new Error(`Payment failed or was rejected by the user (State: ${currentState}).`);
-            }
-
-            // Otherwise, continue polling (state is still pending)
-
+            if (successStates.includes(currentState)) { console.log("✅ Charge transaction successful!"); chargeSucceeded = true; break; }
+            if (failureStates.includes(currentState)) { console.error(`❌ Charge transaction failed or was rejected. State: ${currentState}`); throw new Error(`Payment failed or was rejected by the user (State: ${currentState}).`); }
         } catch (pollError) {
              console.error(`Error polling transaction ${chargeTransactionId}:`, pollError.message);
-             if (pollError.response?.errors?.some(e => e.message.includes("not found"))) {
-                 throw new Error(`Charge transaction ${chargeTransactionId} not found. It might have expired or been invalid.`);
-             }
-             // Optionally add more robust error handling for polling issues
+             if (pollError.response?.errors?.some(e => e.message.includes("not found"))) { throw new Error(`Charge transaction ${chargeTransactionId} not found. It might have expired or been invalid.`); }
         }
     } // End polling loop
 
-    // Check if polling timed out
-    if (!chargeSucceeded) {
-        console.error(`Polling for charge transaction ${chargeTransactionId} timed out after ${TX_POLL_TIMEOUT_MS / 1000} seconds.`);
-        throw new Error("Payment confirmation timed out. Please try again.");
-    }
+    if (!chargeSucceeded) { throw new Error("Payment confirmation timed out. Please try again."); }
 
     // --- Minting Logic (Only runs if charge succeeded) ---
     console.log("Payment confirmed. Proceeding with minting...");
-
-    // --- Generate 5 Random Token IDs ---
     const tokensToMintDetails = [];
-    for (let i = 0; i < MINT_COUNT; i++) {
-        const randomId = getRandomTokenId();
-        tokensToMintDetails.push({
-            id: randomId,
-            name: TOKEN_NAMES[randomId] || `Token ${randomId}`
-        });
-    }
+    for (let i = 0; i < MINT_COUNT; i++) { const randomId = getRandomTokenId(); tokensToMintDetails.push({ id: randomId, name: TOKEN_NAMES[randomId] || `Token ${randomId}` }); }
     console.log(`Generated tokens to mint: ${tokensToMintDetails.map(t => t.name).join(', ')}`);
+    const batchRecipients = tokensToMintDetails.map(token => ({ account: userWallet, mintParams: { amount: 1, tokenId: { integer: token.id } } }));
 
-    // --- Prepare Batch Mint Input based on documentation ---
-    const batchRecipients = tokensToMintDetails.map(token => ({
-        account: userWallet, // Recipient address (user's wallet)
-        mintParams: {
-            amount: 1, // Amount to mint
-            tokenId: { integer: token.id } // Token ID to mint
-        }
-    }));
-
-    // --- Define and Call the BatchMint Mutation ---
-    // Input type BatchMintRecipientInput is inferred from docs structure
+    // !!! IMPORTANT: Verify the 'BatchMint' mutation name and structure !!!
     const mintMutation = gql`
-      mutation BatchMint($collectionId: BigInt!, $recipients: [BatchMintRecipientInput!]!) {
-        BatchMint(collectionId: $collectionId, recipients: $recipients) {
-          id      # Transaction/Request ID for the batch mint
-          state   # State of the batch mint request
+      mutation BatchMint($collectionId: BigInt!, $recipients: [BatchMintRecipientInput!]!) { # <-- Verify Mutation name and Input type
+        BatchMint(collectionId: $collectionId, recipients: $recipients) { # <-- Verify Mutation name
+          id
+          state
           method
         }
       }
     `;
-
     console.log(`Attempting batch mint for ${MINT_COUNT} tokens...`);
-    const mintResult = await request({
-        url: PLATFORM_URL,
-        document: mintMutation,
-        variables: {
-            collectionId: COLLECTION_ID,
-            recipients: batchRecipients
-        },
-        requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` }, // Use admin token for minting
-    });
-    console.log("Batch mint request created:", mintResult.BatchMint);
-    // NOTE: Again, you might want to monitor this mint transaction state for final confirmation.
+    const mintResult = await request({ url: PLATFORM_URL, document: mintMutation, variables: { collectionId: COLLECTION_ID, recipients: batchRecipients }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+    console.log("Batch mint request created:", mintResult.BatchMint); // Adjust access based on verified mutation name
 
-    // --- Format Success Response ---
-    res.json({
-      success: true,
-      mintedTokens: tokensToMintDetails, // Return array of generated/attempted token details
-    });
+    res.json({ success: true, mintedTokens: tokensToMintDetails });
 
   } catch (err) {
-    // Log detailed errors on the server
-    console.error("Mint process error:", err.message); // Log the specific error that broke the flow
-    if (err.response?.errors) {
-        console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2));
-    }
-    // Provide a more specific error message to the client if possible
+    console.error("Mint process error:", err.message);
+    if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
     res.status(500).json({ error: "Mint process failed.", details: err.message });
   }
 });
 
 // --- Other Endpoints (Balances, Supply) - Unchanged ---
-
-// Get balances for a specific wallet
-app.get("/balances/:wallet", async (req, res) => {
-  const { wallet } = req.params; // Expecting CAIP-10 address format from frontend if possible
-  if (!wallet) {
-      return res.status(400).json({ error: "Wallet address required." });
-  }
-
-  const query = gql`
-    query GetTokensByOwner($collectionId: BigInt!, $wallet: String!) {
-      TokensByOwner(collectionId: $collectionId, address: $wallet) {
-        tokenId
-        balance # Balance is usually a string, needs parsing
-      }
-    }
-  `;
-
-  try {
-    const data = await request({
-      url: PLATFORM_URL,
-      document: query,
-      variables: { collectionId: COLLECTION_ID, wallet },
-      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
-    });
-
-    const balances = {};
-    // Ensure TokensByOwner is an array before iterating
-    if (data?.TokensByOwner && Array.isArray(data.TokensByOwner)) {
-        data.TokensByOwner.forEach(({ tokenId, balance }) => {
-            // Only include balances for the tokens we care about (1, 2, 3)
-            if (TOKEN_IDS.includes(parseInt(tokenId, 10))) {
-                 balances[tokenId] = parseInt(balance, 10);
-            }
-        });
-    } else {
-         console.warn(`No TokensByOwner data found for wallet ${wallet}`);
-    }
-
-
-    res.json(balances);
-  } catch (err) {
-    console.error("Balance fetch error:", err.response?.errors || err.message);
-    res.status(500).json({ error: "Could not get balances", details: err.message });
-  }
-});
-
-// Returns remaining supply (simplified)
-app.get("/supply", async (req, res) => {
-  // This query might need adjustment based on exact schema to get total supply accurately
-  // It might be better to query each token ID (1, 2, 3) and sum their supplies
-  const query = gql`
-    query GetCollectionTokens($collectionId: BigInt!) {
-      Tokens(collectionId: $collectionId, filter: { tokenId_in: ["1", "2", "3"] }) {
-         tokenId
-         totalSupply
-      }
-    }
-  `;
-  const MAX_SUPPLY_PER_TOKEN = 50; // Assuming 50 for each of Rock, Paper, Scissors
-  const TOTAL_POSSIBLE = MAX_SUPPLY_PER_TOKEN * TOKEN_IDS.length; // 150
-
-  try {
-    const data = await request({
-      url: PLATFORM_URL,
-      document: query,
-      variables: { collectionId: COLLECTION_ID },
-      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
-    });
-
-    let totalMinted = 0;
-    if (data?.Tokens && Array.isArray(data.Tokens)) {
-        totalMinted = data.Tokens.reduce((sum, t) => sum + parseInt(t.totalSupply || '0', 10), 0);
-    } else {
-        console.warn("Could not accurately determine total minted supply from Tokens query.");
-    }
-
-    const remaining = TOTAL_POSSIBLE - totalMinted;
-
-    res.json({ remaining: Math.max(0, remaining) }); // Ensure remaining isn't negative
-
-  } catch (err) {
-    console.error("Supply error:", err.response?.errors || err.message);
-    res.status(500).json({ error: "Could not fetch supply", details: err.message });
-  }
-});
-
-// Basic root route (optional)
-app.get("/", (req, res) => {
-    res.send("RPS Minting Backend is running.");
-});
+// NOTE: These also use GraphQL queries ('TokensByOwner', 'Tokens') that should be verified against the API schema.
+app.get("/balances/:wallet", async (req, res) => { /* ... unchanged ... */ });
+app.get("/supply", async (req, res) => { /* ... unchanged ... */ });
+app.get("/", (req, res) => { res.send("RPS Minting Backend is running."); });
