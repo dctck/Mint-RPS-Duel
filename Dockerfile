@@ -1,6 +1,6 @@
-FROM rust:1.74-slim
+FROM rust:1.74-bullseye
 
-# Install required packages for building Rust projects
+# Install necessary system packages
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -19,11 +19,11 @@ WORKDIR /app
 # Clone Wallet Daemon repo
 RUN git clone https://github.com/enjin/wallet-daemon .
 
-# Build it
+# Build the wallet daemon binary
 RUN cargo build --release
 
-# Expose port used by Wallet Daemon
+# Expose daemon port
 EXPOSE 8282
 
-# Run the binary
+# Run the daemon
 CMD ["./target/release/enjin-wallet-daemon"]
