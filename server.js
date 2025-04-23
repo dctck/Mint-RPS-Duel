@@ -25,48 +25,48 @@ const AUTH_TOKEN = process.env.ENJIN_API_TOKEN; // Ensure this is set in Render 
 
 // Step 1: Start an auth session (user scans QR)
 app.get("/start-auth", async (req, res) => {
-  // Using the CreateAuthSession mutation structure confirmed by cURL example
-  // Takes input object { externalId }, returns id, qr, expiresIn
+  // Using the CreateAuthSession mutation structure confirmed by AI Assistant's cURL example
+  // Operation accepts $externalId: String directly
+  // CreateAuthSession field receives input: { externalId: $externalId }
+  // Returns id, qr, expiresIn
   const mutation = gql`
-    mutation CreateAuthSession($input: CreateAuthSessionInput!) { # Takes input object
-      CreateAuthSession(input: $input) {                         # Passes input object
-        id                                                        # Auth Session ID
-        qr                                                        # QR Code Data URI
-        expiresIn                                                 # Expiry time
+    mutation CreateAuthSession($externalId: String) {         # Define operation variable
+      CreateAuthSession(input: { externalId: $externalId }) { # Pass variable within input object
+        id                                                    # Auth Session ID
+        qr                                                    # QR Code Data URI
+        expiresIn                                             # Expiry time
       }
     }
   `;
 
   try {
-    console.log("Requesting auth session from Enjin Platform (cURL structure)...");
+    console.log("Requesting auth session from Enjin Platform (Corrected structure)...");
     // Create a unique externalId (optional but recommended)
     const externalId = `rps-session-${crypto.randomUUID()}`;
+    // Variables object should match the operation definition ($externalId)
     const variables = {
-        input: { // Pass externalId inside the input object
-            externalId: externalId
-        }
+        externalId: externalId
     };
     console.log("Using variables:", JSON.stringify(variables)); // Log variables being sent
 
     const data = await request({
       url: PLATFORM_URL,
       document: mutation,
-      variables: variables, // Pass the structured variables
+      variables: variables, // Pass the flat variables object
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
     // Access the data based on the mutation name
     const authData = data?.CreateAuthSession;
 
-    // Check for the fields returned according to cURL example (id, qr)
+    // Check for the fields returned (id, qr)
     if (!authData?.id || !authData?.qr) {
-        console.error("Unexpected response structure from CreateAuthSession (cURL structure):", data);
-        // Log the actual fields received if possible
+        console.error("Unexpected response structure from CreateAuthSession (Corrected structure):", data);
         console.error("Received fields:", Object.keys(authData || {}).join(', '));
         throw new Error("Failed to get required ID or QR code from auth response.");
     }
 
-    console.log("Auth session created successfully (cURL structure):", authData);
+    console.log("Auth session created successfully (Corrected structure):", authData);
     // Return the data containing id, qr, and expiresIn
     res.json(authData); // This should contain the direct QR data URI
 
@@ -75,7 +75,6 @@ app.get("/start-auth", async (req, res) => {
      if (err.response?.errors) {
         console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2));
      } else if (err.response?.error) {
-         // Log the raw error if it's not a typical GraphQL error structure (like the HTML page)
          console.error("Raw API Error Response:", err.response.error);
      }
     res.status(500).json({ error: "Auth failed", details: err.message });
