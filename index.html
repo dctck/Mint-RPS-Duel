@@ -14,6 +14,8 @@
         #app { flex-grow: 1; }
         /* Style for the QR code image */
         #qr-image { width: 200px; height: 200px; margin: 0 auto; display: block; background-color: white; /* Add white bg in case image loading fails */ }
+        /* Style for expired QR overlay */
+        .qr-expired-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
 
     </style>
 </head>
@@ -41,8 +43,15 @@
 
         <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
             <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
-            <img id="qr-image" src="" alt="Scan QR Code" />
-            <p class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
+            <div class="relative"> <img id="qr-image" src="" alt="Scan QR Code" />
+                <div id="qr-expired-overlay" class="qr-expired-overlay hidden">
+                    <p class="text-red-600 font-semibold mb-2">QR Code Expired</p>
+                    <button id="refresh-qr-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
+                        Refresh QR
+                    </button>
+                </div>
+            </div>
+             <p id="qr-expiry-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
             <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
                 Cancel
             </button>
@@ -76,21 +85,26 @@
 
         // --- State Variables ---
         let userWallet = null;
-        let verificationId = null; // Changed from authTokenId
+        let verificationId = null;
         let isConnected = false;
         let pollIntervalId = null;
-        let enjBalance = null; // Added state for ENJ balance
+        let enjBalance = null;
+        let qrExpiryTimestamp = null; // Timestamp when QR expires
+        let qrExpiryIntervalId = null; // Interval ID for updating expiry text
 
         // --- DOM Element References ---
         const connectBtn = document.getElementById("connect-btn");
-        const disconnectBtn = document.getElementById("disconnect-btn"); // Added
-        const cancelBtn = document.getElementById("cancel-btn");       // Added
+        const disconnectBtn = document.getElementById("disconnect-btn");
+        const cancelBtn = document.getElementById("cancel-btn");
         const qrContainer = document.getElementById("qr-container");
         const qrImage = document.getElementById("qr-image");
+        const qrExpiryText = document.getElementById("qr-expiry-text"); // Added
+        const qrExpiredOverlay = document.getElementById("qr-expired-overlay"); // Added
+        const refreshQrBtn = document.getElementById("refresh-qr-btn"); // Added
         const connectionStatus = document.getElementById("connection-status");
         const walletInfo = document.getElementById("wallet-info");
         const walletAddressSpan = document.getElementById("wallet-address");
-        const enjBalanceSpan = document.getElementById("enj-balance"); // Added
+        const enjBalanceSpan = document.getElementById("enj-balance");
         const balancesDiv = document.getElementById("balances");
         const progressDiv = document.getElementById("progress");
         const rockCountSpan = document.getElementById("rock-count");
@@ -99,26 +113,8 @@
         const mintedCountSpan = document.getElementById("minted-count");
 
         // --- Helper Functions ---
-        function shortenAddress(address) {
-            if (!address || address.length < 10) return address;
-            const parts = address.split(':');
-            const addr = parts[parts.length - 1];
-            return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
-        }
-        // Function to format large balance numbers (Witoshi to ENJ)
-        function formatEnjBalance(witoshiBalance) {
-            if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--';
-            try {
-                const balanceBigInt = BigInt(witoshiBalance);
-                const enjValue = Number(balanceBigInt) / 1e18; // Convert Witoshi (10^18) to ENJ
-                // Format to a reasonable number of decimal places
-                return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-            } catch (e) {
-                console.error("Error formatting balance:", e);
-                return '--';
-            }
-        }
-
+        function shortenAddress(address) { /* ... unchanged ... */ if (!address || address.length < 10) return address; const parts = address.split(':'); const addr = parts[parts.length - 1]; return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`; }
+        function formatEnjBalance(witoshiBalance) { /* ... unchanged ... */ if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--'; try { const balanceBigInt = BigInt(witoshiBalance); const enjValue = Number(balanceBigInt) / 1e18; return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }); } catch (e) { console.error("Error formatting balance:", e); return '--'; } }
 
         // --- UI Update Functions ---
         function updateUI() {
@@ -126,26 +122,28 @@
                 // Connected State
                 connectionStatus.textContent = "Status: Connected";
                 walletAddressSpan.textContent = shortenAddress(userWallet);
-                enjBalanceSpan.textContent = formatEnjBalance(enjBalance); // Display formatted balance
+                enjBalanceSpan.textContent = formatEnjBalance(enjBalance);
                 connectBtn.classList.add('hidden');
-                cancelBtn.classList.add('hidden'); // Ensure cancel is hidden
+                cancelBtn.classList.add('hidden');
                 qrContainer.classList.add('hidden');
+                qrExpiredOverlay.classList.add('hidden'); // Ensure overlay is hidden
                 walletInfo.classList.remove('hidden');
-                disconnectBtn.classList.remove('hidden'); // Show disconnect button
+                disconnectBtn.classList.remove('hidden');
                 balancesDiv.classList.remove('hidden');
                 progressDiv.classList.remove('hidden');
-                loadBalancesAndSupply(); // Load NFT balances/supply
+                loadBalancesAndSupply();
             } else {
                 // Disconnected State
                 connectionStatus.textContent = "Status: Not Connected";
                 connectBtn.classList.remove('hidden');
-                connectBtn.disabled = false; // Ensure connect button is enabled
-                disconnectBtn.classList.add('hidden'); // Hide disconnect button
-                cancelBtn.classList.add('hidden'); // Hide cancel button
+                connectBtn.disabled = false;
+                disconnectBtn.classList.add('hidden');
+                cancelBtn.classList.add('hidden'); // Hide cancel unless QR is shown
                 walletInfo.classList.add('hidden');
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
-                // Don't hide QR container unless explicitly cancelled or connected
+                // Only show QR container if connect was clicked and not cancelled/expired
+                // qrContainer visibility managed by connectWallet/cancelConnection/expiry
             }
         }
 
@@ -154,10 +152,13 @@
         // 1. Start Connection Process (RequestAccount Flow)
         async function connectWallet() {
             connectionStatus.textContent = "Status: Connecting...";
-            connectBtn.disabled = true; // Disable connect button while processing
-            connectBtn.classList.add('hidden'); // Hide connect button
+            connectBtn.disabled = true;
+            connectBtn.classList.add('hidden');
+            qrContainer.classList.add('hidden'); // Hide old QR
+            qrExpiredOverlay.classList.add('hidden'); // Hide expiry overlay
             cancelBtn.classList.remove('hidden'); // Show cancel button
-            qrContainer.classList.add('hidden'); // Hide old QR if any
+
+            clearQrExpiryTimer(); // Clear previous timer if any
 
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
@@ -170,13 +171,20 @@
                 }
 
                 verificationId = data.verificationId;
-
-                qrImage.src = data.qrCode;
+                qrImage.src = data.qrCode; // Set the image source
                 console.log("QR Code image source set to:", data.qrCode);
 
                 qrContainer.classList.remove("hidden"); // Show container with QR image
                 connectionStatus.textContent = "Status: Scan QR Code";
-                startPolling();
+
+                // Start expiry timer if expiresIn is provided
+                if (typeof data.expiresIn === 'number' && data.expiresIn > 0) {
+                    startQrExpiryTimer(data.expiresIn);
+                } else {
+                    qrExpiryText.textContent = "Waiting for connection..."; // Default text
+                }
+
+                startPolling(); // Start polling for verification status
             } catch (err) {
                 console.error("❌ Failed to start verification session:", err);
                 connectionStatus.textContent = `Error: ${err.message}. Please try again.`;
@@ -185,6 +193,7 @@
                 connectBtn.classList.remove('hidden');
                 cancelBtn.classList.add('hidden');
                 qrContainer.classList.add("hidden");
+                clearQrExpiryTimer();
             }
         }
 
@@ -198,17 +207,17 @@
                 if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
                 try {
                     const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
-                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { console.log("Polling: Verification ID not found or not verified yet (404)."); } return; }
+                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { /* console.log("Polling: Verification ID not found or not verified yet (404)."); */ } return; } // Don't log 404 every time
                     const status = await check.json();
 
+                    // Check if address AND balance are present
                     if (status.address) {
                         console.log("Polling success: Wallet verified!", status.address);
                         clearInterval(pollIntervalId); pollIntervalId = null;
+                        clearQrExpiryTimer(); // Stop expiry timer on success
                         userWallet = status.address;
-                        // Fetch ENJ balance here (requires backend update)
-                        // For now, set placeholder:
-                        enjBalance = null; // Will be updated once backend sends it
-                        verificationId = null; // Clear verification ID once used
+                        enjBalance = status.balance; // Store the balance
+                        verificationId = null;
                         isConnected = true;
                         updateUI();
                     }
@@ -216,9 +225,59 @@
             }, pollingInterval);
         }
 
-        // 3. Cancel Connection Process
+         // 3. QR Code Expiry Timer Logic
+        function startQrExpiryTimer(durationSeconds) {
+            qrExpiryTimestamp = Date.now() + durationSeconds * 1000;
+            console.log(`QR Code expires in ${durationSeconds} seconds at ${new Date(qrExpiryTimestamp).toLocaleTimeString()}`);
+
+            // Update text immediately
+            updateExpiryText();
+
+            // Set interval to update text every second
+            qrExpiryIntervalId = setInterval(updateExpiryText, 1000);
+        }
+
+        function updateExpiryText() {
+            if (!qrExpiryTimestamp) return;
+
+            const now = Date.now();
+            const timeLeftSeconds = Math.round((qrExpiryTimestamp - now) / 1000);
+
+            if (timeLeftSeconds > 0) {
+                qrExpiryText.textContent = `Expires in: ${timeLeftSeconds}s`;
+            } else {
+                handleQrExpiry();
+            }
+        }
+
+        function handleQrExpiry() {
+            console.log("QR Code expired.");
+            qrExpiryText.textContent = "QR Code Expired";
+            qrExpiredOverlay.classList.remove('hidden'); // Show overlay with refresh button
+            cancelBtn.classList.add('hidden'); // Hide cancel button
+            clearQrExpiryTimer(); // Stop this timer
+            if (pollIntervalId) { // Stop polling if QR expired
+                clearInterval(pollIntervalId);
+                pollIntervalId = null;
+                console.log("Polling stopped due to QR expiry.");
+            }
+             verificationId = null; // Invalidate the ID
+        }
+
+        function clearQrExpiryTimer() {
+            if (qrExpiryIntervalId) {
+                clearInterval(qrExpiryIntervalId);
+                qrExpiryIntervalId = null;
+            }
+            qrExpiryTimestamp = null;
+             // qrExpiryText.textContent = "Waiting for connection..."; // Reset text if needed
+        }
+
+
+        // 4. Cancel Connection Process
         function cancelConnection() {
             console.log("Connection cancelled by user.");
+            clearQrExpiryTimer(); // Stop expiry timer
             if (pollIntervalId) {
                 clearInterval(pollIntervalId);
                 pollIntervalId = null;
@@ -231,9 +290,10 @@
             updateUI(); // Reset UI to disconnected state
         }
 
-        // 4. Disconnect Wallet
+        // 5. Disconnect Wallet
         function disconnectWallet() {
             console.log("Disconnecting wallet.");
+            clearQrExpiryTimer(); // Stop expiry timer if running
             if (pollIntervalId) { // Stop polling if disconnect happens during polling
                 clearInterval(pollIntervalId);
                 pollIntervalId = null;
@@ -246,7 +306,7 @@
         }
 
 
-        // 5. Load Balances and Supply
+        // 6. Load Balances and Supply
         async function loadBalancesAndSupply() {
              if (!isConnected || !userWallet) return;
              console.log("Loading balances and supply for wallet:", userWallet);
@@ -266,8 +326,9 @@
 
         // --- Initial Setup ---
         connectBtn.addEventListener("click", connectWallet);
-        disconnectBtn.addEventListener("click", disconnectWallet); // Add listener
-        cancelBtn.addEventListener("click", cancelConnection);     // Add listener
+        disconnectBtn.addEventListener("click", disconnectWallet);
+        cancelBtn.addEventListener("click", cancelConnection);
+        refreshQrBtn.addEventListener("click", connectWallet); // Refresh button calls connectWallet again
         updateUI();
 
     </script>
