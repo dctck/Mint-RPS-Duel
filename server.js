@@ -3,34 +3,33 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { request, gql } = require("graphql-request");
-const crypto = require('crypto'); // Kept just in case needed elsewhere
+const crypto = require('crypto');
 
 const app = express();
-// Use the PORT environment variable provided by Render or default to 5000
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });
 
-app.use(cors()); // Enable CORS for all routes
+app.use(cors());
 app.use(bodyParser.json());
 
 // --- Configuration ---
 const PLATFORM_URL = process.env.PLATFORM_URL;
-const AUTH_TOKEN = process.env.ENJIN_API_TOKEN; // Ensure this is set in Render Env Vars
-// Removed unused constants related to minting
-
+const AUTH_TOKEN = process.env.ENJIN_API_TOKEN;
+// Removed unused constants
 
 // --- API Endpoints ---
 
 // Step 1: Start wallet verification process using RequestAccount query
 app.get("/start-auth", async (req, res) => {
-  // Using the RequestAccount query based on verified docs
+  // Added expiresIn field to the query
   const query = gql`
     query RequestAccount {
       RequestAccount {
-        qrCode          # URL pointing to the QR code image
-        verificationId  # ID to use for polling verification status
+        qrCode
+        verificationId
+        expiresIn # Added field to get expiry time (in seconds)
       }
     }
   `;
@@ -40,20 +39,24 @@ app.get("/start-auth", async (req, res) => {
     const data = await request({
       url: PLATFORM_URL,
       document: query,
-      // No variables needed for RequestAccount query
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
     const verificationData = data?.RequestAccount;
 
-    // Check for the fields returned by RequestAccount
+    // Check for required fields (ID, QR) and optional (expiresIn)
     if (!verificationData?.verificationId || !verificationData?.qrCode) {
         console.error("Unexpected response structure from RequestAccount:", data);
         throw new Error("Failed to get required verificationId or qrCode from RequestAccount response.");
     }
+     // Log if expiresIn is missing, but don't treat it as a fatal error
+     if (typeof verificationData.expiresIn === 'undefined') {
+        console.warn("Warning: 'expiresIn' field not received from RequestAccount.");
+     }
+
 
     console.log("Account verification request initiated:", verificationData);
-    // Return the data containing verificationId and qrCode URL
+    // Return the data containing verificationId, qrCode URL, and potentially expiresIn
     res.json(verificationData);
 
   } catch (err) {
@@ -67,20 +70,23 @@ app.get("/start-auth", async (req, res) => {
   }
 });
 
-// Step 2: Check Verification Status (Polling) using GetAccountVerified query
-app.get("/check-auth/:verificationId", async (req, res) => { // Use verificationId
+// Step 2: Check Authentication Status (Polling) using GetAccountVerified query
+app.get("/check-auth/:verificationId", async (req, res) => {
     const { verificationId } = req.params;
     if (!verificationId) {
         return res.status(400).json({ error: "Verification ID is required" });
     }
 
-    // Using the GetAccountVerified query based on verified docs
+    // Added balances { free } to the query
     const query = gql`
-      query GetAccountVerified($verificationId: String!) { # Use String! type based on example
+      query GetAccountVerified($verificationId: String!) {
         GetAccountVerified(verificationId: $verificationId) {
           verified
           account {
-            address # CAIP-10 address format based on example
+            address # CAIP-10 address format
+            balances { # Added balances field
+                free # Free ENJ balance in Witoshi (String)
+            }
           }
         }
       }
@@ -97,39 +103,43 @@ app.get("/check-auth/:verificationId", async (req, res) => { // Use verification
       const verificationStatus = data?.GetAccountVerified;
       const isVerified = verificationStatus?.verified;
       const walletAddress = verificationStatus?.account?.address;
+      // Extract balance, default to null if not found
+      const enjBalanceWitoshi = verificationStatus?.account?.balances?.free ?? null;
 
-      console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}`);
+      console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}`);
 
       if (isVerified && walletAddress) {
-        res.json({ address: walletAddress }); // Return address only if verified
+        // Return both address and balance
+        res.json({
+            address: walletAddress,
+            balance: enjBalanceWitoshi // Send balance in Witoshi
+        });
       } else {
-        res.json({ address: null }); // Not verified yet
+        res.json({ address: null, balance: null }); // Not verified yet
       }
     } catch (err) {
       if (err.response?.errors) {
           console.error("Check verification GraphQL error:", err.response.errors);
           if (err.response.errors.some(e => e.message.includes("not found"))) {
-             return res.status(404).json({ address: null, error: "Verification ID not found or expired." });
+             return res.status(404).json({ address: null, balance: null, error: "Verification ID not found or expired." });
           }
       } else {
           console.error("Check verification network/request error:", err.message);
       }
-      res.status(200).json({ address: null, error: "Failed to check verification status." });
+      res.status(200).json({ address: null, balance: null, error: "Failed to check verification status." });
     }
 });
 
 
 // Step 3: Mint endpoint REMOVED
-// app.post("/mint", async (req, res) => { ... });
-
 
 // --- Other Endpoints (Balances, Supply) - Kept for potential use ---
 app.get("/balances/:wallet", async (req, res) => {
     const { wallet } = req.params;
     if (!wallet) { return res.status(400).json({ error: "Wallet address required." }); }
     const query = gql` query GetTokensByOwner($collectionId: BigInt!, $wallet: String!) { TokensByOwner(collectionId: $collectionId, address: $wallet) { tokenId balance } } `;
-    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0'); // Added default to avoid error if not set
-    const TOKEN_IDS = [1, 2, 3]; // Keep for filtering balances
+    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
+    const TOKEN_IDS = [1, 2, 3];
     try {
         const data = await request({ url: PLATFORM_URL, document: query, variables: { collectionId: COLLECTION_ID, wallet }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
         const balances = {};
@@ -144,8 +154,8 @@ app.get("/balances/:wallet", async (req, res) => {
 
 app.get("/supply", async (req, res) => {
     const query = gql` query GetCollectionTokens($collectionId: BigInt!) { Tokens(collectionId: $collectionId, filter: { tokenId_in: ["1", "2", "3"] }) { tokenId totalSupply } } `;
-    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0'); // Added default
-    const TOKEN_IDS = [1, 2, 3]; // Keep for calculating total
+    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
+    const TOKEN_IDS = [1, 2, 3];
     const MAX_SUPPLY_PER_TOKEN = 50;
     const TOTAL_POSSIBLE = MAX_SUPPLY_PER_TOKEN * TOKEN_IDS.length;
     try {
@@ -160,5 +170,5 @@ app.get("/supply", async (req, res) => {
 
 // Basic root route (optional)
 app.get("/", (req, res) => {
-    res.send("RPS Auth Backend is running."); // Updated message
+    res.send("RPS Auth Backend is running.");
 });
