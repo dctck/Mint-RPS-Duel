@@ -27,18 +27,25 @@
             Status: Not Connected
         </div>
 
-        <div id="wallet-info" class="hidden mb-4 bg-black bg-opacity-20 p-3 rounded-lg">
-            <p><strong>Wallet:</strong> <span id="wallet-address" class="font-mono"></span></p>
+        <div id="wallet-info" class="hidden mb-4 bg-black bg-opacity-20 p-3 rounded-lg text-sm">
+            <p><strong>Wallet:</strong> <span id="wallet-address" class="font-mono block break-all"></span></p>
+            <p class="mt-1"><strong>Balance:</strong> <span id="enj-balance" class="font-mono">--</span> cENJ</p>
+            <button id="disconnect-btn" class="hidden mt-3 bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
+                Disconnect
+            </button>
         </div>
 
         <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out mb-4">
             Connect Wallet
         </button>
 
-        <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl">
+        <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
             <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
             <img id="qr-image" src="" alt="Scan QR Code" />
             <p class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
+            <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
+                Cancel
+            </button>
         </div>
 
         <div id="balances" class="hidden my-4 bg-black bg-opacity-20 p-4 rounded-lg">
@@ -55,7 +62,7 @@
             <p><span id="minted-count" class="font-bold">--</span> / 150 Total</p>
         </div>
 
-        </div>
+    </div>
 
     <script>
         // --- Configuration ---
@@ -72,14 +79,18 @@
         let verificationId = null; // Changed from authTokenId
         let isConnected = false;
         let pollIntervalId = null;
+        let enjBalance = null; // Added state for ENJ balance
 
         // --- DOM Element References ---
         const connectBtn = document.getElementById("connect-btn");
+        const disconnectBtn = document.getElementById("disconnect-btn"); // Added
+        const cancelBtn = document.getElementById("cancel-btn");       // Added
         const qrContainer = document.getElementById("qr-container");
         const qrImage = document.getElementById("qr-image");
         const connectionStatus = document.getElementById("connection-status");
         const walletInfo = document.getElementById("wallet-info");
         const walletAddressSpan = document.getElementById("wallet-address");
+        const enjBalanceSpan = document.getElementById("enj-balance"); // Added
         const balancesDiv = document.getElementById("balances");
         const progressDiv = document.getElementById("progress");
         const rockCountSpan = document.getElementById("rock-count");
@@ -94,26 +105,47 @@
             const addr = parts[parts.length - 1];
             return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
         }
+        // Function to format large balance numbers (Witoshi to ENJ)
+        function formatEnjBalance(witoshiBalance) {
+            if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--';
+            try {
+                const balanceBigInt = BigInt(witoshiBalance);
+                const enjValue = Number(balanceBigInt) / 1e18; // Convert Witoshi (10^18) to ENJ
+                // Format to a reasonable number of decimal places
+                return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+            } catch (e) {
+                console.error("Error formatting balance:", e);
+                return '--';
+            }
+        }
+
 
         // --- UI Update Functions ---
         function updateUI() {
             if (isConnected && userWallet) {
+                // Connected State
                 connectionStatus.textContent = "Status: Connected";
                 walletAddressSpan.textContent = shortenAddress(userWallet);
+                enjBalanceSpan.textContent = formatEnjBalance(enjBalance); // Display formatted balance
                 connectBtn.classList.add('hidden');
+                cancelBtn.classList.add('hidden'); // Ensure cancel is hidden
                 qrContainer.classList.add('hidden');
                 walletInfo.classList.remove('hidden');
+                disconnectBtn.classList.remove('hidden'); // Show disconnect button
                 balancesDiv.classList.remove('hidden');
                 progressDiv.classList.remove('hidden');
-                loadBalancesAndSupply();
+                loadBalancesAndSupply(); // Load NFT balances/supply
             } else {
+                // Disconnected State
                 connectionStatus.textContent = "Status: Not Connected";
                 connectBtn.classList.remove('hidden');
-                connectBtn.disabled = false;
+                connectBtn.disabled = false; // Ensure connect button is enabled
+                disconnectBtn.classList.add('hidden'); // Hide disconnect button
+                cancelBtn.classList.add('hidden'); // Hide cancel button
                 walletInfo.classList.add('hidden');
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
-                // qrContainer.classList.add('hidden'); // Keep QR hidden until connect clicked
+                // Don't hide QR container unless explicitly cancelled or connected
             }
         }
 
@@ -122,8 +154,10 @@
         // 1. Start Connection Process (RequestAccount Flow)
         async function connectWallet() {
             connectionStatus.textContent = "Status: Connecting...";
-            connectBtn.disabled = true;
-            qrContainer.classList.add('hidden');
+            connectBtn.disabled = true; // Disable connect button while processing
+            connectBtn.classList.add('hidden'); // Hide connect button
+            cancelBtn.classList.remove('hidden'); // Show cancel button
+            qrContainer.classList.add('hidden'); // Hide old QR if any
 
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
@@ -131,24 +165,25 @@
                 const data = await res.json();
                 console.log("🔑 Received start-auth response:", data);
 
-                // Expecting { verificationId, qrCode } from backend
                 if (!data.verificationId || !data.qrCode) {
                     throw new Error("Missing verificationId or qrCode URL from backend!");
                 }
 
-                verificationId = data.verificationId; // Store the verification ID
+                verificationId = data.verificationId;
 
-                // Set QR Code Image Source Directly
                 qrImage.src = data.qrCode;
                 console.log("QR Code image source set to:", data.qrCode);
 
-                qrContainer.classList.remove("hidden");
+                qrContainer.classList.remove("hidden"); // Show container with QR image
                 connectionStatus.textContent = "Status: Scan QR Code";
                 startPolling();
             } catch (err) {
                 console.error("❌ Failed to start verification session:", err);
                 connectionStatus.textContent = `Error: ${err.message}. Please try again.`;
+                // Reset UI on error
                 connectBtn.disabled = false;
+                connectBtn.classList.remove('hidden');
+                cancelBtn.classList.add('hidden');
                 qrContainer.classList.add("hidden");
             }
         }
@@ -162,7 +197,6 @@
             pollIntervalId = setInterval(async () => {
                 if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
                 try {
-                    // Use the verificationId in the URL
                     const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
                     if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { console.log("Polling: Verification ID not found or not verified yet (404)."); } return; }
                     const status = await check.json();
@@ -170,7 +204,10 @@
                     if (status.address) {
                         console.log("Polling success: Wallet verified!", status.address);
                         clearInterval(pollIntervalId); pollIntervalId = null;
-                        userWallet = status.address; // Store the CAIP-10 address
+                        userWallet = status.address;
+                        // Fetch ENJ balance here (requires backend update)
+                        // For now, set placeholder:
+                        enjBalance = null; // Will be updated once backend sends it
                         verificationId = null; // Clear verification ID once used
                         isConnected = true;
                         updateUI();
@@ -179,7 +216,37 @@
             }, pollingInterval);
         }
 
-        // 3. Load Balances and Supply
+        // 3. Cancel Connection Process
+        function cancelConnection() {
+            console.log("Connection cancelled by user.");
+            if (pollIntervalId) {
+                clearInterval(pollIntervalId);
+                pollIntervalId = null;
+            }
+            verificationId = null;
+            isConnected = false;
+            userWallet = null;
+            enjBalance = null;
+            qrContainer.classList.add('hidden'); // Hide QR
+            updateUI(); // Reset UI to disconnected state
+        }
+
+        // 4. Disconnect Wallet
+        function disconnectWallet() {
+            console.log("Disconnecting wallet.");
+            if (pollIntervalId) { // Stop polling if disconnect happens during polling
+                clearInterval(pollIntervalId);
+                pollIntervalId = null;
+            }
+            verificationId = null; // Clear any pending verification
+            isConnected = false;
+            userWallet = null;
+            enjBalance = null;
+            updateUI(); // Reset UI to disconnected state
+        }
+
+
+        // 5. Load Balances and Supply
         async function loadBalancesAndSupply() {
              if (!isConnected || !userWallet) return;
              console.log("Loading balances and supply for wallet:", userWallet);
@@ -197,10 +264,10 @@
              } catch (err) { console.error("❌ Error loading balances/supply:", err); /* Optionally show error in UI */ }
         }
 
-        // Removed buyPack and card animation functions
-
         // --- Initial Setup ---
         connectBtn.addEventListener("click", connectWallet);
+        disconnectBtn.addEventListener("click", disconnectWallet); // Add listener
+        cancelBtn.addEventListener("click", cancelConnection);     // Add listener
         updateUI();
 
     </script>
