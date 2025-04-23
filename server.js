@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { request, gql } = require("graphql-request");
-const crypto = require('crypto'); // Import crypto for generating a random ID
+const crypto = require('crypto'); // Kept just in case needed elsewhere
 
 const app = express();
 // Use the PORT environment variable provided by Render or default to 5000
@@ -23,79 +23,64 @@ const AUTH_TOKEN = process.env.ENJIN_API_TOKEN; // Ensure this is set in Render 
 
 // --- API Endpoints ---
 
-// Step 1: Start an auth session (user scans QR)
+// Step 1: Start wallet verification process using RequestAccount query
 app.get("/start-auth", async (req, res) => {
-  // Using the CreateAuthSession mutation structure confirmed by AI Assistant's cURL example
-  // Operation accepts $externalId: String directly
-  // CreateAuthSession field receives input: { externalId: $externalId }
-  // Returns id, qr, expiresIn
-  const mutation = gql`
-    mutation CreateAuthSession($externalId: String) {         # Define operation variable
-      CreateAuthSession(input: { externalId: $externalId }) { # Pass variable within input object
-        id                                                    # Auth Session ID
-        qr                                                    # QR Code Data URI
-        expiresIn                                             # Expiry time
+  // Using the RequestAccount query based on verified docs
+  const query = gql`
+    query RequestAccount {
+      RequestAccount {
+        qrCode          # URL pointing to the QR code image
+        verificationId  # ID to use for polling verification status
       }
     }
   `;
 
   try {
-    console.log("Requesting auth session from Enjin Platform (Corrected structure)...");
-    // Create a unique externalId (optional but recommended)
-    const externalId = `rps-session-${crypto.randomUUID()}`;
-    // Variables object should match the operation definition ($externalId)
-    const variables = {
-        externalId: externalId
-    };
-    console.log("Using variables:", JSON.stringify(variables)); // Log variables being sent
-
+    console.log("Requesting account verification from Enjin Platform...");
     const data = await request({
       url: PLATFORM_URL,
-      document: mutation,
-      variables: variables, // Pass the flat variables object
+      document: query,
+      // No variables needed for RequestAccount query
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
-    // Access the data based on the mutation name
-    const authData = data?.CreateAuthSession;
+    const verificationData = data?.RequestAccount;
 
-    // Check for the fields returned (id, qr)
-    if (!authData?.id || !authData?.qr) {
-        console.error("Unexpected response structure from CreateAuthSession (Corrected structure):", data);
-        console.error("Received fields:", Object.keys(authData || {}).join(', '));
-        throw new Error("Failed to get required ID or QR code from auth response.");
+    // Check for the fields returned by RequestAccount
+    if (!verificationData?.verificationId || !verificationData?.qrCode) {
+        console.error("Unexpected response structure from RequestAccount:", data);
+        throw new Error("Failed to get required verificationId or qrCode from RequestAccount response.");
     }
 
-    console.log("Auth session created successfully (Corrected structure):", authData);
-    // Return the data containing id, qr, and expiresIn
-    res.json(authData); // This should contain the direct QR data URI
+    console.log("Account verification request initiated:", verificationData);
+    // Return the data containing verificationId and qrCode URL
+    res.json(verificationData);
 
   } catch (err) {
-    console.error("Auth error:", err.response?.errors || err.message);
+    console.error("Verification request error:", err.response?.errors || err.message);
      if (err.response?.errors) {
         console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2));
      } else if (err.response?.error) {
          console.error("Raw API Error Response:", err.response.error);
      }
-    res.status(500).json({ error: "Auth failed", details: err.message });
+    res.status(500).json({ error: "Verification request failed", details: err.message });
   }
 });
 
-// Step 2: Check Authentication Status (Polling)
-app.get("/check-auth/:authSessionId", async (req, res) => { // Use authSessionId
-    const { authSessionId } = req.params;
-    if (!authSessionId) {
-        return res.status(400).json({ error: "Auth session ID is required" });
+// Step 2: Check Verification Status (Polling) using GetAccountVerified query
+app.get("/check-auth/:verificationId", async (req, res) => { // Use verificationId
+    const { verificationId } = req.params;
+    if (!verificationId) {
+        return res.status(400).json({ error: "Verification ID is required" });
     }
 
-    // Using the verified query 'GetAuthSession'
+    // Using the GetAccountVerified query based on verified docs
     const query = gql`
-      query GetAuthSession($id: ID!) {
-        GetAuthSession(id: $id) {
-          id
-          state
-          wallet {
-            id # CAIP-10 wallet ID
+      query GetAccountVerified($verificationId: String!) { # Use String! type based on example
+        GetAccountVerified(verificationId: $verificationId) {
+          verified
+          account {
+            address # CAIP-10 address format based on example
           }
         }
       }
@@ -105,31 +90,31 @@ app.get("/check-auth/:authSessionId", async (req, res) => { // Use authSessionId
       const data = await request({
         url: PLATFORM_URL,
         document: query,
-        variables: { id: authSessionId }, // Use ID! type
+        variables: { verificationId: verificationId },
         requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
       });
 
-      const sessionData = data?.GetAuthSession;
-      const walletId = sessionData?.wallet?.id;
-      const sessionState = sessionData?.state;
-      console.log(`Polling auth session ${authSessionId}: State=${sessionState}, Wallet=${walletId || 'N/A'}`);
+      const verificationStatus = data?.GetAccountVerified;
+      const isVerified = verificationStatus?.verified;
+      const walletAddress = verificationStatus?.account?.address;
 
-      // Return address only if wallet ID exists (implies successful link)
-      if (walletId) {
-        res.json({ address: walletId });
+      console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}`);
+
+      if (isVerified && walletAddress) {
+        res.json({ address: walletAddress }); // Return address only if verified
       } else {
-        res.json({ address: null }); // Not authenticated or wallet not linked yet
+        res.json({ address: null }); // Not verified yet
       }
     } catch (err) {
       if (err.response?.errors) {
-          console.error("Check auth GraphQL error:", err.response.errors);
+          console.error("Check verification GraphQL error:", err.response.errors);
           if (err.response.errors.some(e => e.message.includes("not found"))) {
-             return res.status(404).json({ address: null, error: "Auth session not found or expired." });
+             return res.status(404).json({ address: null, error: "Verification ID not found or expired." });
           }
       } else {
-          console.error("Check auth network/request error:", err.message);
+          console.error("Check verification network/request error:", err.message);
       }
-      res.status(200).json({ address: null, error: "Failed to check auth status or wallet not linked." });
+      res.status(200).json({ address: null, error: "Failed to check verification status." });
     }
 });
 
