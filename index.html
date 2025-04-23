@@ -66,20 +66,17 @@
             2: { name: "Paper", emoji: "📄" },
             3: { name: "Scissors", emoji: "✂️" }
         };
-        // Removed card animation delays
 
         // --- State Variables ---
         let userWallet = null;
-        let authTokenId = null; // Will store the Auth Session ID from CreateAuthSession
+        let verificationId = null; // Changed from authTokenId
         let isConnected = false;
         let pollIntervalId = null;
-        // Removed qrCodeInstance variable
 
         // --- DOM Element References ---
         const connectBtn = document.getElementById("connect-btn");
-        // Removed buyButton, dismissButton, cardContainer, revealCards
         const qrContainer = document.getElementById("qr-container");
-        const qrImage = document.getElementById("qr-image"); // Get the img tag
+        const qrImage = document.getElementById("qr-image");
         const connectionStatus = document.getElementById("connection-status");
         const walletInfo = document.getElementById("wallet-info");
         const walletAddressSpan = document.getElementById("wallet-address");
@@ -89,7 +86,6 @@
         const paperCountSpan = document.getElementById("paper-count");
         const scissorsCountSpan = document.getElementById("scissors-count");
         const mintedCountSpan = document.getElementById("minted-count");
-        // Removed mint status/loader/result elements
 
         // --- Helper Functions ---
         function shortenAddress(address) {
@@ -98,7 +94,6 @@
             const addr = parts[parts.length - 1];
             return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
         }
-        // Removed wait() function
 
         // --- UI Update Functions ---
         function updateUI() {
@@ -124,60 +119,61 @@
 
         // --- Core Logic ---
 
-        // 1. Start Connection Process
+        // 1. Start Connection Process (RequestAccount Flow)
         async function connectWallet() {
             connectionStatus.textContent = "Status: Connecting...";
             connectBtn.disabled = true;
-            qrContainer.classList.add('hidden'); // Hide old QR if any
+            qrContainer.classList.add('hidden');
 
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 const data = await res.json();
-
                 console.log("🔑 Received start-auth response:", data);
 
-                // Expecting { id, qr, expiresIn } from backend (based on cURL example)
-                if (!data.id || !data.qr) {
-                    throw new Error("Missing ID or QR data from backend!");
+                // Expecting { verificationId, qrCode } from backend
+                if (!data.verificationId || !data.qrCode) {
+                    throw new Error("Missing verificationId or qrCode URL from backend!");
                 }
 
-                authTokenId = data.id; // Store the session ID
+                verificationId = data.verificationId; // Store the verification ID
 
-                // --- Set QR Code Image Source Directly ---
-                // The backend now provides the QR data URI directly
-                qrImage.src = data.qr;
-                console.log("QR Code image source set directly from data.qr");
-                // --- End QR Code Handling ---
+                // Set QR Code Image Source Directly
+                qrImage.src = data.qrCode;
+                console.log("QR Code image source set to:", data.qrCode);
 
-                qrContainer.classList.remove("hidden"); // Show container with QR image
+                qrContainer.classList.remove("hidden");
                 connectionStatus.textContent = "Status: Scan QR Code";
-
-                // Start polling
                 startPolling();
-
             } catch (err) {
-                console.error("❌ Failed to start auth session:", err);
+                console.error("❌ Failed to start verification session:", err);
                 connectionStatus.textContent = `Error: ${err.message}. Please try again.`;
                 connectBtn.disabled = false;
-                 qrContainer.classList.add("hidden"); // Hide QR on error
+                qrContainer.classList.add("hidden");
             }
         }
 
-        // 2. Poll for Authentication Status
+        // 2. Poll for Verification Status
         function startPolling() {
             if (pollIntervalId) clearInterval(pollIntervalId);
-            if (!authTokenId) { console.error("Cannot start polling without authTokenId"); return; }
-            console.log(`Starting polling for authSessionId: ${authTokenId}`);
+            if (!verificationId) { console.error("Cannot start polling without verificationId"); return; }
+
+            console.log(`Starting polling for verificationId: ${verificationId}`);
             pollIntervalId = setInterval(async () => {
-                if (!authTokenId) { console.log("Polling stopped: No authTokenId."); clearInterval(pollIntervalId); return; }
+                if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
                 try {
-                    const check = await fetch(`${backendUrl}/check-auth/${authTokenId}`);
-                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { console.log("Polling: Auth session not found or linked yet (404)."); } return; }
+                    // Use the verificationId in the URL
+                    const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
+                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { console.log("Polling: Verification ID not found or not verified yet (404)."); } return; }
                     const status = await check.json();
+
                     if (status.address) {
-                        console.log("Polling success: Wallet connected!", status.address);
-                        clearInterval(pollIntervalId); pollIntervalId = null; userWallet = status.address; isConnected = true; updateUI();
+                        console.log("Polling success: Wallet verified!", status.address);
+                        clearInterval(pollIntervalId); pollIntervalId = null;
+                        userWallet = status.address; // Store the CAIP-10 address
+                        verificationId = null; // Clear verification ID once used
+                        isConnected = true;
+                        updateUI();
                     }
                 } catch (err) { console.error("❌ Polling error:", err); }
             }, pollingInterval);
@@ -211,14 +207,3 @@
 
 </body>
 </html>
-```
-
-**Key Changes:**
-
-1.  Removed the `<script>` tag for `qrcode.min.js`.
-2.  In the `connectWallet` function:
-    * It now expects `data.qr` in the response.
-    * It sets `qrImage.src = data.qr;` directly.
-    * Removed the `try...catch` block around QR code generation and the `qrCodeInstance` variable.
-
-Now, deploy this updated `index.html` to your Render Static Site. This version should correctly display the QR code provided by your latest backend. Test the connection flow aga
