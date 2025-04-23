@@ -23,13 +23,13 @@ const AUTH_TOKEN = process.env.ENJIN_API_TOKEN;
 
 // Step 1: Start wallet verification process using RequestAccount query
 app.get("/start-auth", async (req, res) => {
-  // Added expiresIn field to the query
+  // Removed expiresIn field from the query as it's not available
   const query = gql`
     query RequestAccount {
       RequestAccount {
-        qrCode
-        verificationId
-        expiresIn # Added field to get expiry time (in seconds)
+        qrCode          # URL pointing to the QR code image
+        verificationId  # ID to use for polling verification status
+        # expiresIn was removed as it's not in the schema type
       }
     }
   `;
@@ -44,19 +44,14 @@ app.get("/start-auth", async (req, res) => {
 
     const verificationData = data?.RequestAccount;
 
-    // Check for required fields (ID, QR) and optional (expiresIn)
+    // Check for required fields (ID, QR)
     if (!verificationData?.verificationId || !verificationData?.qrCode) {
         console.error("Unexpected response structure from RequestAccount:", data);
         throw new Error("Failed to get required verificationId or qrCode from RequestAccount response.");
     }
-     // Log if expiresIn is missing, but don't treat it as a fatal error
-     if (typeof verificationData.expiresIn === 'undefined') {
-        console.warn("Warning: 'expiresIn' field not received from RequestAccount.");
-     }
-
 
     console.log("Account verification request initiated:", verificationData);
-    // Return the data containing verificationId, qrCode URL, and potentially expiresIn
+    // Return the data containing verificationId and qrCode URL
     res.json(verificationData);
 
   } catch (err) {
@@ -103,16 +98,14 @@ app.get("/check-auth/:verificationId", async (req, res) => {
       const verificationStatus = data?.GetAccountVerified;
       const isVerified = verificationStatus?.verified;
       const walletAddress = verificationStatus?.account?.address;
-      // Extract balance, default to null if not found
       const enjBalanceWitoshi = verificationStatus?.account?.balances?.free ?? null;
 
       console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}`);
 
       if (isVerified && walletAddress) {
-        // Return both address and balance
         res.json({
             address: walletAddress,
-            balance: enjBalanceWitoshi // Send balance in Witoshi
+            balance: enjBalanceWitoshi
         });
       } else {
         res.json({ address: null, balance: null }); // Not verified yet
