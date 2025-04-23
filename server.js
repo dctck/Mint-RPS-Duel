@@ -42,61 +42,64 @@ function delay(ms) {
 
 // --- API Endpoints ---
 
-// Step 1: Start wallet verification process
+// Step 1: Start an auth session (user scans QR)
 app.get("/start-auth", async (req, res) => {
-  // Using the RequestAccount query based on new docs
-  const query = gql`
-    query RequestAccount {
-      RequestAccount {
-        qrCode          # URL pointing to the QR code image
-        verificationId  # ID to use for polling verification status
+  // Reverting to CreateAuthSession based on verifications and docs
+  const mutation = gql`
+    mutation CreateAuthSession($input: CreateAuthSessionInput!) {
+      CreateAuthSession(input: $input) {
+        id                # Auth Session ID
+        state             # Initial state (e.g., PENDING)
+        authenticationUrl # URL to be encoded into QR code by frontend
       }
     }
   `;
 
   try {
-    console.log("Requesting account verification from Enjin Platform...");
+    console.log("Requesting auth session from Enjin Platform...");
+    const variables = { input: {} }; // Empty input is valid
     const data = await request({
       url: PLATFORM_URL,
-      document: query,
-      // No variables needed for RequestAccount query
+      document: mutation,
+      variables: variables,
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
-    const verificationData = data?.RequestAccount;
+    const authData = data?.CreateAuthSession;
 
-    if (!verificationData?.verificationId || !verificationData?.qrCode) {
-        console.error("Unexpected response structure from RequestAccount:", data);
-        throw new Error("Failed to get required verificationId or qrCode from RequestAccount response.");
+    if (!authData?.id || !authData?.authenticationUrl) {
+        console.error("Unexpected response structure from CreateAuthSession:", data);
+        throw new Error("Failed to get required ID or authenticationUrl from auth response.");
     }
 
-    console.log("Account verification request initiated:", verificationData);
-    // Return the data containing verificationId and qrCode URL
-    res.json(verificationData);
+    console.log("Auth session created successfully:", authData);
+    // Return the data containing id, state, and authenticationUrl
+    res.json(authData);
 
   } catch (err) {
-    console.error("Verification request error:", err.response?.errors || err.message);
+    console.error("Auth error:", err.response?.errors || err.message);
      if (err.response?.errors) {
         console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2));
     }
-    res.status(500).json({ error: "Verification request failed", details: err.message });
+    res.status(500).json({ error: "Auth failed", details: err.message });
   }
 });
 
-// Step 2: Check Verification Status (Polling)
-app.get("/check-auth/:verificationId", async (req, res) => { // Renamed param
-    const { verificationId } = req.params;
-    if (!verificationId) {
-        return res.status(400).json({ error: "Verification ID is required" });
+// Step 2: Check Authentication Status (Polling)
+app.get("/check-auth/:authSessionId", async (req, res) => { // Use authSessionId
+    const { authSessionId } = req.params;
+    if (!authSessionId) {
+        return res.status(400).json({ error: "Auth session ID is required" });
     }
 
-    // Using the GetAccountVerified query based on new docs
+    // Using the verified query 'GetAuthSession'
     const query = gql`
-      query GetAccountVerified($verificationId: String!) { # Use String! type based on example
-        GetAccountVerified(verificationId: $verificationId) {
-          verified
-          account {
-            address # CAIP-10 address format based on example
+      query GetAuthSession($id: ID!) {
+        GetAuthSession(id: $id) {
+          id
+          state
+          wallet {
+            id # CAIP-10 wallet ID
           }
         }
       }
@@ -106,84 +109,80 @@ app.get("/check-auth/:verificationId", async (req, res) => { // Renamed param
       const data = await request({
         url: PLATFORM_URL,
         document: query,
-        variables: { verificationId: verificationId },
+        variables: { id: authSessionId }, // Use ID! type
         requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
       });
 
-      const verificationStatus = data?.GetAccountVerified;
-      const isVerified = verificationStatus?.verified;
-      const walletAddress = verificationStatus?.account?.address;
+      const sessionData = data?.GetAuthSession;
+      const walletId = sessionData?.wallet?.id;
+      const sessionState = sessionData?.state;
+      console.log(`Polling auth session ${authSessionId}: State=${sessionState}, Wallet=${walletId || 'N/A'}`);
 
-      console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}`);
-
-      if (isVerified && walletAddress) {
-        res.json({ address: walletAddress }); // Return address only if verified
+      // Return address only if wallet ID exists (implies successful link)
+      // You might want to add a check for sessionState === 'AUTHENTICATED' or similar if needed
+      if (walletId) {
+        res.json({ address: walletId });
       } else {
-        res.json({ address: null }); // Not verified yet
+        res.json({ address: null }); // Not authenticated or wallet not linked yet
       }
     } catch (err) {
       if (err.response?.errors) {
-          console.error("Check verification GraphQL error:", err.response.errors);
+          console.error("Check auth GraphQL error:", err.response.errors);
           if (err.response.errors.some(e => e.message.includes("not found"))) {
-             return res.status(404).json({ address: null, error: "Verification ID not found or expired." });
+             return res.status(404).json({ address: null, error: "Auth session not found or expired." });
           }
       } else {
-          console.error("Check verification network/request error:", err.message);
+          console.error("Check auth network/request error:", err.message);
       }
-      res.status(200).json({ address: null, error: "Failed to check verification status." });
+      res.status(200).json({ address: null, error: "Failed to check auth status or wallet not linked." });
     }
 });
 
 
-// Step 3: Mint 5 Tokens
+// Step 3: Mint 5 Tokens after user scans QR and approves payment
 app.post("/mint", async (req, res) => {
-  // Frontend will send the 'verificationId' obtained from /start-auth
-  // We'll keep calling it 'authTokenId' in the request body for now to minimize frontend changes,
-  // but use 'verificationId' internally for clarity.
+  // Frontend sends the authSessionId (obtained from /start-auth) as 'authTokenId'
   const { authTokenId } = req.body;
-  const verificationId = authTokenId;
-  if (!verificationId) {
-    return res.status(400).json({ error: "Verification ID (authTokenId) is required" });
+  const authSessionId = authTokenId; // Use clearer internal variable name
+  if (!authSessionId) {
+    return res.status(400).json({ error: "Auth session ID is required" });
   }
 
   let userWallet = null;
   let chargeTransactionId = null;
 
   try {
-    // --- Get Wallet Address using GetAccountVerified ---
-    // We need to re-verify and get the address associated with the verificationId
-    console.log(`Mint request received for verificationId: ${verificationId}`);
+    // --- Get Wallet Address using GetAuthSession query ---
+    console.log(`Mint request received for authSessionId: ${authSessionId}`);
     const getWalletQuery = gql`
-      query GetVerifiedWalletForMint($verificationId: String!) {
-        GetAccountVerified(verificationId: $verificationId) {
-          verified
-          account {
-            address
+      query GetAuthSessionWallet($id: ID!) {
+        GetAuthSession(id: $id) {
+          state
+          wallet {
+            id # CAIP-10 wallet ID
           }
         }
       }
     `;
-    const { GetAccountVerified } = await request({
+    const { GetAuthSession } = await request({
       url: PLATFORM_URL,
       document: getWalletQuery,
-      variables: { verificationId: verificationId },
+      variables: { id: authSessionId },
       requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
 
-    userWallet = GetAccountVerified?.verified ? GetAccountVerified?.account?.address : null;
+    userWallet = GetAuthSession?.wallet?.id;
+    const sessionState = GetAuthSession?.state;
 
     if (!userWallet) {
-      throw new Error(`Wallet not verified or found for verification ID ${verificationId}.`);
+      throw new Error(`Wallet not linked to session ${authSessionId} or session state (${sessionState}) is invalid.`);
     }
-    console.log(`User wallet identified for minting: ${userWallet}`);
+    console.log(`User wallet identified: ${userWallet} from session state: ${sessionState}`);
 
     // --- Initiate Charge ENJ ---
-    // !!! UNCERTAINTY WARNING !!!
-    // The 'RequestAccount' flow doesn't explicitly state how to authorize this transaction.
-    // The 'CreateTransaction' mutation might fail if it requires an 'authTokenId' from
-    // 'CreateAuthSession' instead of just being called after verification.
-    // We are proceeding assuming it *might* work, but it needs testing.
-    console.log(`Requesting ${MINT_COST_ENJ} cENJ charge transaction...`);
+    // Using the authSessionId (passed as authTokenId) to link the transaction
+    // This assumes CreateTransaction uses this ID to prompt the correct user wallet
+    console.log(`Requesting ${MINT_COST_ENJ} cENJ charge transaction linked to session ${authSessionId}...`);
     const txMutation = gql`
       mutation CreateTransaction($input: CreateTransactionInput!) {
         CreateTransaction(input: $input) {
@@ -196,11 +195,7 @@ app.post("/mint", async (req, res) => {
       input: {
         recipient: RECEIVER_WALLET,
         value: MINT_COST_WITOSHI,
-        // Does CreateTransaction need the user's verified address? Or the verificationId?
-        // Or does it just work because the user approved the *linking* via QR? This is unclear.
-        // Passing the verificationId here as 'authTokenId' based on previous structure,
-        // but this is the most likely point of failure.
-        authTokenId: verificationId, // <-- HIGHLY UNCERTAIN if this works
+        authTokenId: authSessionId, // Use the session ID to link the payment request
       },
     };
     const chargeTxResult = await request({ url: PLATFORM_URL, document: txMutation, variables: txVars, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
