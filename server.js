@@ -29,7 +29,6 @@ app.get("/start-auth", async (req, res) => {
       RequestAccount {
         qrCode          # URL pointing to the QR code image
         verificationId  # ID to use for polling verification status
-        # expiresIn was removed as it's not in the schema type
       }
     }
   `;
@@ -65,23 +64,24 @@ app.get("/start-auth", async (req, res) => {
   }
 });
 
-// Step 2: Check Authentication Status (Polling) using GetAccountVerified query
+// Step 2: Check Authentication Status (Polling) using GetWallet query
 app.get("/check-auth/:verificationId", async (req, res) => {
     const { verificationId } = req.params;
     if (!verificationId) {
         return res.status(400).json({ error: "Verification ID is required" });
     }
 
-    // Added balances { free } to the query
+    // Using GetWallet query with verificationId based on documentation
+    // This query returns null until verified, then returns wallet info including balance.
     const query = gql`
-      query GetAccountVerified($verificationId: String!) {
-        GetAccountVerified(verificationId: $verificationId) {
-          verified
+      query GetVerifiedWallet($verificationId: String!) { # Use String! type based on example
+        GetWallet(verificationId: $verificationId) {
+          # Returns null if not verified yet
           account {
             address # CAIP-10 address format
-            balances { # Added balances field
-                free # Free ENJ balance in Witoshi (String)
-            }
+          }
+          balances {
+            free # Free ENJ balance in Witoshi (String)
           }
         }
       }
@@ -95,31 +95,34 @@ app.get("/check-auth/:verificationId", async (req, res) => {
         requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
       });
 
-      const verificationStatus = data?.GetAccountVerified;
-      const isVerified = verificationStatus?.verified;
-      const walletAddress = verificationStatus?.account?.address;
-      const enjBalanceWitoshi = verificationStatus?.account?.balances?.free ?? null;
+      // Access the wallet data directly
+      const walletData = data?.GetWallet;
+      const walletAddress = walletData?.account?.address;
+      const enjBalanceWitoshi = walletData?.balances?.free ?? null;
 
-      console.log(`Polling verification ${verificationId}: Verified=${isVerified}, Wallet=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}`);
+      console.log(`Polling verification ${verificationId}: WalletData=${walletData ? 'Found' : 'Null'}, Address=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}`);
 
-      if (isVerified && walletAddress) {
+      // If GetWallet returned data (meaning verification is complete)
+      if (walletData && walletAddress) {
         res.json({
             address: walletAddress,
             balance: enjBalanceWitoshi
         });
       } else {
-        res.json({ address: null, balance: null }); // Not verified yet
+        // Wallet not verified yet, GetWallet returned null
+        res.json({ address: null, balance: null });
       }
     } catch (err) {
+      // Handle potential errors like invalid/expired verificationId
       if (err.response?.errors) {
           console.error("Check verification GraphQL error:", err.response.errors);
-          if (err.response.errors.some(e => e.message.includes("not found"))) {
-             return res.status(404).json({ address: null, balance: null, error: "Verification ID not found or expired." });
-          }
+          // You might get specific errors here if the verificationId is invalid/expired
+          // For now, just return null address/balance
       } else {
           console.error("Check verification network/request error:", err.message);
       }
-      res.status(200).json({ address: null, balance: null, error: "Failed to check verification status." });
+      // Return success but null data if verification isn't complete or error occurred
+      res.status(200).json({ address: null, balance: null, error: "Failed to check verification status or not yet verified." });
     }
 });
 
