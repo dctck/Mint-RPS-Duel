@@ -66,7 +66,7 @@ app.get("/check-auth/:verificationId", async (req, res) => {
 
 // --- Other Endpoints (Balances, Supply) ---
 
-// Get FT balances for a specific wallet - UPDATED QUERY
+// Get FT balances for a specific wallet - UPDATED QUERY using GetWallet
 app.get("/balances/:wallet", async (req, res) => {
     const { wallet } = req.params; // This is the CAIP-10 wallet address
     if (!wallet) { return res.status(400).json({ error: "Wallet address required." }); }
@@ -74,22 +74,28 @@ app.get("/balances/:wallet", async (req, res) => {
     const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
     const TOKEN_IDS_TO_CHECK = [1, 2, 3]; // Specific tokens we care about
 
-    // Using the Wallet { tokenAccounts { ... } } query structure from AI Assistant
-    // Note: wallet ID argument for Wallet query might need adjustment if it expects internal ID vs address
-    // Assuming 'id' argument takes the CAIP-10 address based on common patterns. Verify if needed.
-    // Filtering by specific token IDs within the connection arguments.
+    // Using GetWallet query and requesting tokenAccounts connection within it
+    // Assuming the 'id' argument for GetWallet can take the CAIP-10 address directly.
+    // If GetWallet only works with verificationId, this approach won't work standalone.
+    // Let's try querying GetWallet by address (assuming it's possible)
+    // Alternative: Query GetAccount first by address, get internal ID, then query Wallet by internal ID?
+    // Sticking with the AI's structure but using GetWallet as the entry point based on previous errors.
+    // Need to verify if GetWallet accepts an 'address' argument instead of 'verificationId' or 'id'.
+    // For now, let's *assume* GetWallet works with address for fetching balances. This might need adjustment.
+
     const query = gql`
-        query GetFungibleTokenBalances($walletId: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
-            Wallet(id: $walletId) { # Query Wallet type using address as ID (assumption)
+        query GetFungibleTokenBalances($walletAddress: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
+            # Attempting to query GetWallet using address - VERIFY IF THIS IS SUPPORTED
+            GetWallet(address: $walletAddress) {
                 tokenAccounts(
-                    collectionIds: [$collectionId] # Filter by collection ID
-                    tokenIds: $tokenIds            # Filter by specific token IDs
-                    first: 10                     # Limit results (adjust if needed)
+                    collectionIds: [$collectionId]
+                    tokenIds: $tokenIds
+                    first: 10
                  ) {
                     edges {
                         node {
-                            tokenId # Token ID (BigInt)
-                            balance # Balance (String)
+                            tokenId
+                            balance
                         }
                     }
                 }
@@ -100,67 +106,92 @@ app.get("/balances/:wallet", async (req, res) => {
     try {
         console.log(`Fetching FT balances for wallet: ${wallet}, collection: ${COLLECTION_ID}, tokens: ${TOKEN_IDS_TO_CHECK}`);
         const variables = {
-            walletId: wallet,
+            walletAddress: wallet, // Pass the address
             collectionId: COLLECTION_ID,
-            tokenIds: TOKEN_IDS_TO_CHECK // Pass the array of token IDs
+            tokenIds: TOKEN_IDS_TO_CHECK
         };
         const data = await request({ url: PLATFORM_URL, document: query, variables: variables, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
 
         const balances = { "1": 0, "2": 0, "3": 0 }; // Initialize with 0 counts
 
-        // Process the edges from the tokenAccounts connection
-        const edges = data?.Wallet?.tokenAccounts?.edges;
+        // Process the edges, adjusted path based on GetWallet query
+        const edges = data?.GetWallet?.tokenAccounts?.edges;
         if (edges && Array.isArray(edges)) {
             edges.forEach(edge => {
                 const node = edge?.node;
                 if (node && node.tokenId && node.balance) {
-                    const tokenIdStr = node.tokenId.toString(); // Convert BigInt tokenId to string for map key
-                    if (balances.hasOwnProperty(tokenIdStr)) { // Check if it's one of the tokens we care about
+                    const tokenIdStr = node.tokenId.toString();
+                    if (balances.hasOwnProperty(tokenIdStr)) {
                         balances[tokenIdStr] = parseInt(node.balance, 10);
                     }
                 }
             });
         } else {
-            console.warn(`No tokenAccounts edges found for wallet ${wallet} and collection ${COLLECTION_ID}`);
+            console.warn(`No tokenAccounts edges found for wallet ${wallet} and collection ${COLLECTION_ID} via GetWallet query.`);
+            // It's possible GetWallet doesn't accept 'address' or doesn't return tokenAccounts this way.
         }
 
         console.log(`NFT Balances found:`, balances);
-        res.json(balances); // Return the balances map { "1": count, "2": count, "3": count }
+        res.json(balances);
 
     } catch (err) {
         console.error("Balance fetch error:", err.response?.errors || err.message);
         if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
+        // If the error is about GetWallet not accepting 'address', we need a different approach.
         res.status(500).json({ error: "Could not get balances", details: err.message });
     }
 });
 
 
-// Get supply - using GetTokens query (previously corrected)
+// Get supply - UPDATED QUERY using Collection type
 app.get("/supply", async (req, res) => {
+    // Using Collection query based on AI Assistant suggestion
     const query = gql`
-        query GetCollectionTokens($collectionId: BigInt!) {
-            GetTokens(collectionId: $collectionId, filter: { tokenId_in: ["1", "2", "3"] }) {
-                tokenId
-                totalSupply
+        query GetTotalFungibleSupply($collectionId: BigInt!) {
+            Collection(id: $collectionId) { # Query Collection type
+                # Request tokens connection - verify arguments if filtering needed
+                # Requesting first 100 tokens to cover IDs 1, 2, 3
+                tokens(first: 100) {
+                    edges {
+                        node {
+                            tokenId     # Token ID (BigInt)
+                            totalSupply # Use totalSupply field (assuming it exists)
+                            # type      # Optional: If needed to filter only FUNGIBLE
+                        }
+                    }
+                }
             }
         }
     `;
     const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
-    const TOKEN_IDS = [1, 2, 3];
+    const TOKEN_IDS_TO_CHECK = ["1", "2", "3"]; // Use strings for comparison later
     const MAX_SUPPLY_PER_TOKEN = 50;
-    const TOTAL_POSSIBLE = MAX_SUPPLY_PER_TOKEN * TOKEN_IDS.length;
+    const TOTAL_POSSIBLE = MAX_SUPPLY_PER_TOKEN * TOKEN_IDS_TO_CHECK.length; // 150
+
     try {
         console.log(`Fetching token supply for collection: ${COLLECTION_ID}`);
         const data = await request({ url: PLATFORM_URL, document: query, variables: { collectionId: COLLECTION_ID }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+
         let totalMinted = 0;
-        if (data?.GetTokens && Array.isArray(data.GetTokens)) {
-            totalMinted = data.GetTokens.reduce((sum, t) => sum + parseInt(t.totalSupply || '0', 10), 0);
+        // Process edges from the tokens connection
+        const edges = data?.Collection?.tokens?.edges;
+        if (edges && Array.isArray(edges)) {
+            edges.forEach(edge => {
+                const node = edge?.node;
+                // Check if node exists and has the fields, and if it's one of the tokens we care about
+                if (node && node.tokenId && node.totalSupply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
+                    // Assuming node.type check isn't needed if we only have FTs with IDs 1,2,3
+                    totalMinted += parseInt(node.totalSupply || '0', 10);
+                }
+            });
         } else {
-            console.warn("Could not accurately determine total minted supply from GetTokens query.");
+            console.warn("Could not accurately determine total minted supply from Collection query.");
         }
+
         const remaining = TOTAL_POSSIBLE - totalMinted;
-        console.log(`Total minted: ${totalMinted}, Remaining: ${remaining}`);
-        res.json({ remaining: Math.max(0, remaining) });
+        console.log(`Total minted (IDs ${TOKEN_IDS_TO_CHECK.join(', ')}): ${totalMinted}, Remaining: ${remaining}`);
+        res.json({ remaining: Math.max(0, remaining) }); // Ensure remaining isn't negative
+
     } catch (err) {
         console.error("Supply error:", err.response?.errors || err.message);
         if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
