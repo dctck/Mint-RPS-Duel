@@ -14,9 +14,7 @@
         #app { flex-grow: 1; }
         /* Style for the QR code image */
         #qr-image { width: 200px; height: 200px; margin: 0 auto; display: block; background-color: white; /* Add white bg in case image loading fails */ }
-        /* Style for expired QR overlay */
-        .qr-expired-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-
+        /* Removed QR expired overlay style */
     </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
@@ -43,16 +41,10 @@
 
         <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
             <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
-            <div class="relative"> <img id="qr-image" src="" alt="Scan QR Code" />
-                <div id="qr-expired-overlay" class="qr-expired-overlay hidden">
-                    <p class="text-red-600 font-semibold mb-2">QR Code Expired</p>
-                    <button id="refresh-qr-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
-                        Refresh QR
-                    </button>
+            <div class="relative">
+                <img id="qr-image" src="" alt="Scan QR Code" />
                 </div>
-            </div>
-             <p id="qr-expiry-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
-            <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
+             <p id="qr-status-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p> <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
                 Cancel
             </button>
         </div>
@@ -89,8 +81,7 @@
         let isConnected = false;
         let pollIntervalId = null;
         let enjBalance = null;
-        let qrExpiryTimestamp = null; // Timestamp when QR expires
-        let qrExpiryIntervalId = null; // Interval ID for updating expiry text
+        // Removed QR expiry state variables
 
         // --- DOM Element References ---
         const connectBtn = document.getElementById("connect-btn");
@@ -98,9 +89,8 @@
         const cancelBtn = document.getElementById("cancel-btn");
         const qrContainer = document.getElementById("qr-container");
         const qrImage = document.getElementById("qr-image");
-        const qrExpiryText = document.getElementById("qr-expiry-text"); // Added
-        const qrExpiredOverlay = document.getElementById("qr-expired-overlay"); // Added
-        const refreshQrBtn = document.getElementById("refresh-qr-btn"); // Added
+        const qrStatusText = document.getElementById("qr-status-text"); // Renamed from qr-expiry-text
+        // Removed qrExpiredOverlay, refreshQrBtn references
         const connectionStatus = document.getElementById("connection-status");
         const walletInfo = document.getElementById("wallet-info");
         const walletAddressSpan = document.getElementById("wallet-address");
@@ -126,7 +116,7 @@
                 connectBtn.classList.add('hidden');
                 cancelBtn.classList.add('hidden');
                 qrContainer.classList.add('hidden');
-                qrExpiredOverlay.classList.add('hidden'); // Ensure overlay is hidden
+                // Removed qrExpiredOverlay logic
                 walletInfo.classList.remove('hidden');
                 disconnectBtn.classList.remove('hidden');
                 balancesDiv.classList.remove('hidden');
@@ -142,8 +132,7 @@
                 walletInfo.classList.add('hidden');
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
-                // Only show QR container if connect was clicked and not cancelled/expired
-                // qrContainer visibility managed by connectWallet/cancelConnection/expiry
+                // qrContainer visibility managed by connectWallet/cancelConnection
             }
         }
 
@@ -155,10 +144,10 @@
             connectBtn.disabled = true;
             connectBtn.classList.add('hidden');
             qrContainer.classList.add('hidden'); // Hide old QR
-            qrExpiredOverlay.classList.add('hidden'); // Hide expiry overlay
+            // Removed qrExpiredOverlay logic
             cancelBtn.classList.remove('hidden'); // Show cancel button
 
-            clearQrExpiryTimer(); // Clear previous timer if any
+            // Removed clearQrExpiryTimer call
 
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
@@ -176,13 +165,9 @@
 
                 qrContainer.classList.remove("hidden"); // Show container with QR image
                 connectionStatus.textContent = "Status: Scan QR Code";
+                qrStatusText.textContent = "Waiting for connection..."; // Reset status text
 
-                // Start expiry timer if expiresIn is provided
-                if (typeof data.expiresIn === 'number' && data.expiresIn > 0) {
-                    startQrExpiryTimer(data.expiresIn);
-                } else {
-                    qrExpiryText.textContent = "Waiting for connection..."; // Default text
-                }
+                // Removed expiry timer logic
 
                 startPolling(); // Start polling for verification status
             } catch (err) {
@@ -193,7 +178,7 @@
                 connectBtn.classList.remove('hidden');
                 cancelBtn.classList.add('hidden');
                 qrContainer.classList.add("hidden");
-                clearQrExpiryTimer();
+                // Removed clearQrExpiryTimer call
             }
         }
 
@@ -207,14 +192,13 @@
                 if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
                 try {
                     const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
-                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { /* console.log("Polling: Verification ID not found or not verified yet (404)."); */ } return; } // Don't log 404 every time
+                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } else { /* console.log("Polling: Verification ID not found or not verified yet (404)."); */ } return; }
                     const status = await check.json();
 
-                    // Check if address AND balance are present
                     if (status.address) {
                         console.log("Polling success: Wallet verified!", status.address);
                         clearInterval(pollIntervalId); pollIntervalId = null;
-                        clearQrExpiryTimer(); // Stop expiry timer on success
+                        // Removed clearQrExpiryTimer call
                         userWallet = status.address;
                         enjBalance = status.balance; // Store the balance
                         verificationId = null;
@@ -225,59 +209,13 @@
             }, pollingInterval);
         }
 
-         // 3. QR Code Expiry Timer Logic
-        function startQrExpiryTimer(durationSeconds) {
-            qrExpiryTimestamp = Date.now() + durationSeconds * 1000;
-            console.log(`QR Code expires in ${durationSeconds} seconds at ${new Date(qrExpiryTimestamp).toLocaleTimeString()}`);
-
-            // Update text immediately
-            updateExpiryText();
-
-            // Set interval to update text every second
-            qrExpiryIntervalId = setInterval(updateExpiryText, 1000);
-        }
-
-        function updateExpiryText() {
-            if (!qrExpiryTimestamp) return;
-
-            const now = Date.now();
-            const timeLeftSeconds = Math.round((qrExpiryTimestamp - now) / 1000);
-
-            if (timeLeftSeconds > 0) {
-                qrExpiryText.textContent = `Expires in: ${timeLeftSeconds}s`;
-            } else {
-                handleQrExpiry();
-            }
-        }
-
-        function handleQrExpiry() {
-            console.log("QR Code expired.");
-            qrExpiryText.textContent = "QR Code Expired";
-            qrExpiredOverlay.classList.remove('hidden'); // Show overlay with refresh button
-            cancelBtn.classList.add('hidden'); // Hide cancel button
-            clearQrExpiryTimer(); // Stop this timer
-            if (pollIntervalId) { // Stop polling if QR expired
-                clearInterval(pollIntervalId);
-                pollIntervalId = null;
-                console.log("Polling stopped due to QR expiry.");
-            }
-             verificationId = null; // Invalidate the ID
-        }
-
-        function clearQrExpiryTimer() {
-            if (qrExpiryIntervalId) {
-                clearInterval(qrExpiryIntervalId);
-                qrExpiryIntervalId = null;
-            }
-            qrExpiryTimestamp = null;
-             // qrExpiryText.textContent = "Waiting for connection..."; // Reset text if needed
-        }
+         // Removed QR Code Expiry Timer Logic functions (3, updateExpiryText, handleQrExpiry, clearQrExpiryTimer)
 
 
         // 4. Cancel Connection Process
         function cancelConnection() {
             console.log("Connection cancelled by user.");
-            clearQrExpiryTimer(); // Stop expiry timer
+            // Removed clearQrExpiryTimer call
             if (pollIntervalId) {
                 clearInterval(pollIntervalId);
                 pollIntervalId = null;
@@ -293,7 +231,7 @@
         // 5. Disconnect Wallet
         function disconnectWallet() {
             console.log("Disconnecting wallet.");
-            clearQrExpiryTimer(); // Stop expiry timer if running
+            // Removed clearQrExpiryTimer call
             if (pollIntervalId) { // Stop polling if disconnect happens during polling
                 clearInterval(pollIntervalId);
                 pollIntervalId = null;
@@ -328,7 +266,7 @@
         connectBtn.addEventListener("click", connectWallet);
         disconnectBtn.addEventListener("click", disconnectWallet);
         cancelBtn.addEventListener("click", cancelConnection);
-        refreshQrBtn.addEventListener("click", connectWallet); // Refresh button calls connectWallet again
+        // Removed refreshQrBtn listener
         updateUI();
 
     </script>
