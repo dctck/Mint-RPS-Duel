@@ -81,6 +81,7 @@
         let isConnected = false;
         let pollIntervalId = null;
         let enjBalance = null;
+        let userWalletId = null;
         // Removed QR expiry state variables
 
         // --- DOM Element References ---
@@ -250,7 +251,7 @@
              if (!isConnected || !userWallet) return;
              console.log("Loading balances and supply for wallet:", userWallet);
              try {
-                 const [tokensRes, supplyRes] = await Promise.all([ fetch(`${backendUrl}/balances/${encodeURIComponent(userWalletId)}`), fetch(`${backendUrl}/supply`) ]);
+                 const [tokensRes, supplyRes] = await Promise.all([ fetch(`${backendUrl}/balances/${encodeURIComponent(userWallet)}`), fetch(`${backendUrl}/supply`) ]);
                  if (!tokensRes.ok || !supplyRes.ok) { const tokensError = !tokensRes.ok ? await tokensRes.text() : ''; const supplyError = !supplyRes.ok ? await supplyRes.text() : ''; console.error(`Fetch error: Balances=${tokensRes.status} ${tokensError}, Supply=${supplyRes.status} ${supplyError}`); throw new Error("Failed to fetch balances or supply"); }
                  const tokens = await tokensRes.json();
                  const supply = await supplyRes.json();
@@ -258,7 +259,11 @@
                  rockCountSpan.textContent = tokens["1"] || 0;
                  paperCountSpan.textContent = tokens["2"] || 0;
                  scissorsCountSpan.textContent = tokens["3"] || 0;
-                 mintedCountSpan.textContent = `${totalMinted} / ${totalMaxSupply}`;
+                 const totalMinted = supply.totalMinted;
+                 const totalMaxSupply = supply.totalMaxSupply;
+                 
+                 mintedCountSpan.textContent = totalMinted;
+                 document.getElementById("max-supply-count").textContent = totalMaxSupply;
              } catch (err) { console.error("❌ Error loading balances/supply:", err); /* Optionally show error in UI */ }
         }
 
