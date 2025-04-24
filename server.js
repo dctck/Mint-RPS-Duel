@@ -156,6 +156,7 @@ app.get("/supply", async (req, res) => {
               node {
                 tokenId
                 supply
+                maxSupply
               }
             }
           }
@@ -172,6 +173,7 @@ app.get("/supply", async (req, res) => {
         const data = await request({ url: PLATFORM_URL, document: query, variables: { collectionId: COLLECTION_ID }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
 
         let totalMinted = 0;
+        let totalMaxSupply = 0;
         // Process edges from the tokens connection, adjusted path based on AI example
         const edges = data?.GetCollection?.tokens?.edges;
         if (edges && Array.isArray(edges)) {
@@ -180,15 +182,16 @@ app.get("/supply", async (req, res) => {
                 // Check node, tokenId, and supply fields directly on node
                 if (node && node.tokenId && node.supply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
                     totalMinted += parseInt(node.supply || '0', 10);
+                    totalMaxSupply += parseInt(node.maxSupply || '0', 10);
                 }
             });
         } else {
             console.warn("Could not accurately determine total minted supply from GetCollection query.");
         }
 
-        const remaining = TOTAL_POSSIBLE - totalMinted;
+      
         console.log(`Total minted (IDs ${TOKEN_IDS_TO_CHECK.join(', ')}): ${totalMinted}, Remaining: ${remaining}`);
-        res.json({ remaining: Math.max(0, remaining) }); // Ensure remaining isn't negative
+        res.json({ remaining: Math.max(0, totalMaxSupply - totalMinted) }); // Ensure remaining isn't negative
 
     } catch (err) {
         console.error("Supply error:", err.response?.errors || err.message);
