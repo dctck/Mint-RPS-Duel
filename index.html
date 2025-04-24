@@ -258,8 +258,7 @@
                  rockCountSpan.textContent = tokens["1"] || 0;
                  paperCountSpan.textContent = tokens["2"] || 0;
                  scissorsCountSpan.textContent = tokens["3"] || 0;
-                 const totalMinted = 150 - (supply.remaining || 0);
-                 mintedCountSpan.textContent = totalMinted;
+                 mintedCountSpan.textContent = `${totalMinted} / ${totalMaxSupply}`;
              } catch (err) { console.error("❌ Error loading balances/supply:", err); /* Optionally show error in UI */ }
         }
 
