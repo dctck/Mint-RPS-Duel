@@ -189,9 +189,13 @@ app.get("/supply", async (req, res) => {
             console.warn("Could not accurately determine total minted supply from GetCollection query.");
         }
 
-      
+        const remaining = totalMaxSupply - totalMinted;
         console.log(`Total minted (IDs ${TOKEN_IDS_TO_CHECK.join(', ')}): ${totalMinted}, Remaining: ${remaining}`);
-        res.json({ remaining: Math.max(0, totalMaxSupply - totalMinted) }); // Ensure remaining isn't negative
+        res.json({ 
+          totalMinted,
+          totalMaxSupply,
+          remaining: Math.max(0, remaining) 
+        }); // Ensure remaining isn't negative
 
     } catch (err) {
         console.error("Supply error:", err.response?.errors || err.message);
