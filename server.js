@@ -156,7 +156,7 @@ app.get("/supply", async (req, res) => {
               node {
                 tokenId
                 supply
-                maxSupply
+                capSupply
               }
             }
           }
@@ -182,7 +182,7 @@ app.get("/supply", async (req, res) => {
                 // Check node, tokenId, and supply fields directly on node
                 if (node && node.tokenId && node.supply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
                     totalMinted += parseInt(node.supply || '0', 10);
-                    totalMaxSupply += parseInt(node.maxSupply || '0', 10);
+                    totalMaxSupply += parseInt(node.capSupply || '0', 10);
                 }
             });
         } else {
