@@ -73,78 +73,75 @@ app.get("/check-auth/:verificationId", async (req, res) => {
 
 // Get FT balances for a specific wallet - UPDATED QUERY using Account type
 app.get("/balances/:walletID", async (req, res) => {
-    const { walletID } = req.params; // This is the CAIP-10 wallet address
-    const variables = {
-      walletId: parseInt(walletId, 10),  // This comes from the URL path param
-      collectionId: COLLECTION_ID,       // This comes from your .env
-      tokenIds: TOKEN_IDS_TO_CHECK       // This is defined in your server.js
-    };
-    if (!wallet) { return res.status(400).json({ error: "Wallet address required." }); }
+  const { walletID } = req.params;
 
-    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
-    const TOKEN_IDS_TO_CHECK = [1, 2, 3]; // Specific tokens we care about
+  if (!walletID) {
+    return res.status(400).json({ error: "Wallet ID required." });
+  }
 
-    // Using Account query (assuming it exists and takes address)
-    // and requesting tokenAccounts connection within it.
-    // Corrected path to token ID based on AI assistant feedback.
-    const query = gql`
-       query GetWalletTokenBalances($walletId: Int!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
-  GetWallet(id: $walletId) {
-    tokenAccounts(
-      collectionIds: [$collectionId]
-      tokenIds: $tokenIds
-    ) {
-      edges {
-        node {
-          token {
-            tokenId
+  const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
+  const TOKEN_IDS_TO_CHECK = [1, 2, 3];
+
+  const query = gql`
+    query GetWalletTokenBalances($walletId: Int!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
+      GetWallet(id: $walletId) {
+        tokenAccounts(
+          collectionIds: [$collectionId]
+          tokenIds: $tokenIds
+        ) {
+          edges {
+            node {
+              token {
+                tokenId
+              }
+              balance
+            }
           }
-          balance
         }
       }
     }
-  }
-}
-    `;
+  `;
 
-    try {
-        console.log(`Fetching FT balances for wallet: ${wallet}, collection: ${COLLECTION_ID}, tokens: ${TOKEN_IDS_TO_CHECK}`);
-        const variables = {
-            walletAddress: wallet, // Pass the address
-            collectionId: COLLECTION_ID,
-            tokenIds: TOKEN_IDS_TO_CHECK
-        };
-        const data = await request({ url: PLATFORM_URL, document: query, variables: variables, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+  const variables = {
+    walletId: parseInt(walletID, 10),
+    collectionId: COLLECTION_ID,
+    tokenIds: TOKEN_IDS_TO_CHECK,
+  };
 
-        const balances = { "1": 0, "2": 0, "3": 0 }; // Initialize with 0 counts
+  try {
+    console.log(`Fetching FT balances for wallet ID: ${walletID}, collection: ${COLLECTION_ID}, tokens: ${TOKEN_IDS_TO_CHECK}`);
 
-        // Process the edges, adjusted path based on Account query and AI feedback
-        const edges = data?.Account?.tokenAccounts?.edges; // Path from Account
-        if (edges && Array.isArray(edges)) {
-            edges.forEach(edge => {
-                const node = edge?.node;
-                // Check for token field and its tokenId
-                if (node && node.token && node.token.tokenId && node.balance) {
-                    const tokenIdStr = node.token.tokenId.toString(); // Get ID from nested token object
-                    if (balances.hasOwnProperty(tokenIdStr)) {
-                        balances[tokenIdStr] = parseInt(node.balance, 10);
-                    }
-                }
-            });
-        } else {
-            console.warn(`No tokenAccounts edges found for wallet ${wallet} and collection ${COLLECTION_ID} via Account query.`);
-            // It's possible Account query doesn't accept 'address' or doesn't return tokenAccounts this way.
+    const data = await request({
+      url: PLATFORM_URL,
+      document: query,
+      variables,
+      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+
+    const balances = { "1": 0, "2": 0, "3": 0 };
+    const edges = data?.GetWallet?.tokenAccounts?.edges;
+
+    if (edges && Array.isArray(edges)) {
+      edges.forEach(edge => {
+        const node = edge?.node;
+        if (node && node.token && node.token.tokenId && node.balance) {
+          const tokenIdStr = node.token.tokenId.toString();
+          if (balances.hasOwnProperty(tokenIdStr)) {
+            balances[tokenIdStr] = parseInt(node.balance, 10);
+          }
         }
-
-        console.log(`NFT Balances found:`, balances);
-        res.json(balances);
-
-    } catch (err) {
-        console.error("Balance fetch error:", err.response?.errors || err.message);
-        if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
-        // If the error is about Account query, we need a different approach.
-        res.status(500).json({ error: "Could not get balances", details: err.message });
+      });
+    } else {
+      console.warn(`No tokenAccounts found for wallet ID ${walletID}.`);
     }
+
+    console.log("FT Balances:", balances);
+    res.json(balances);
+
+  } catch (err) {
+    console.error("Balance fetch error:", err.response?.errors || err.message);
+    res.status(500).json({ error: "Could not get balances", details: err.message });
+  }
 });
 
 
