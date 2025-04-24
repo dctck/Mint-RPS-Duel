@@ -78,24 +78,23 @@ app.get("/balances/:wallet", async (req, res) => {
     // and requesting tokenAccounts connection within it.
     // Corrected path to token ID based on AI assistant feedback.
     const query = gql`
-        query GetFungibleTokenBalances($walletAddress: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
-          GetAccount(address: $walletAddress) {
-            tokenAccounts(
-              collectionIds: [$collectionId]
-              tokenIds: $tokenIds
-              first: 10
-            ) {
-              edges {
-                node {
-                  token {
-                    tokenId
-                  }
-                  balance
-                }
-              }
-            }
+       query GetWalletTokenBalances($walletId: Int!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
+  GetWallet(id: $walletId) {
+    tokenAccounts(
+      collectionIds: [$collectionId]
+      tokenIds: $tokenIds
+    ) {
+      edges {
+        node {
+          token {
+            tokenId
           }
+          balance
         }
+      }
+    }
+  }
+}
     `;
 
     try {
