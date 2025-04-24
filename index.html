@@ -201,6 +201,7 @@
                         // Removed clearQrExpiryTimer call
                         userWallet = status.address;
                         enjBalance = status.balance; // Store the balance
+                        userWalletId = status.walletId;  // <- Add this line
                         verificationId = null;
                         isConnected = true;
                         updateUI();
@@ -249,7 +250,7 @@
              if (!isConnected || !userWallet) return;
              console.log("Loading balances and supply for wallet:", userWallet);
              try {
-                 const [tokensRes, supplyRes] = await Promise.all([ fetch(`${backendUrl}/balances/${encodeURIComponent(userWallet)}`), fetch(`${backendUrl}/supply`) ]);
+                 const [tokensRes, supplyRes] = await Promise.all([ fetch(`${backendUrl}/balances/${encodeURIComponent(userWalletId)}`), fetch(`${backendUrl}/supply`) ]);
                  if (!tokensRes.ok || !supplyRes.ok) { const tokensError = !tokensRes.ok ? await tokensRes.text() : ''; const supplyError = !supplyRes.ok ? await supplyRes.text() : ''; console.error(`Fetch error: Balances=${tokensRes.status} ${tokensError}, Supply=${supplyRes.status} ${supplyError}`); throw new Error("Failed to fetch balances or supply"); }
                  const tokens = await tokensRes.json();
                  const supply = await supplyRes.json();
