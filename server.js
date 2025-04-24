@@ -79,24 +79,22 @@ app.get("/balances/:wallet", async (req, res) => {
     // Corrected path to token ID based on AI assistant feedback.
     const query = gql`
         query GetFungibleTokenBalances($walletAddress: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
-             # Query Account type directly by address (assuming this works)
-            Account(address: $walletAddress) {
-                # Access tokenAccounts connection
-                tokenAccounts(
-                    collectionIds: [$collectionId]
-                    tokenIds: $tokenIds
-                    first: 10 # Adjust count if needed
-                 ) {
-                    edges {
-                        node {
-                            token { # Access nested token object
-                               tokenId # Use tokenId field as per AI suggestion
-                            }
-                            balance
-                        }
-                    }
+          GetAccount(address: $walletAddress) {
+            tokenAccounts(
+              collectionIds: [$collectionId]
+              tokenIds: $tokenIds
+              first: 10
+            ) {
+              edges {
+                node {
+                  token {
+                    tokenId
+                  }
+                  balance
                 }
+              }
             }
+          }
         }
     `;
 
@@ -146,20 +144,17 @@ app.get("/supply", async (req, res) => {
     // Using GetCollection query based on error suggestion and AI Assistant example
     const query = gql`
         query GetTotalFungibleSupply($collectionId: BigInt!) {
-            GetCollection(id: $collectionId) { # Use GetCollection query
-                # Navigate through tokens connection -> edges -> node
-                tokens(first: 100) {
-                    edges {
-                        node {
-                            # Access tokenId and supply directly on node based on AI example
-                            tokenId
-                            supply
-                            # type # Optional type field
-                        }
-                    }
-                }
+          GetCollection(collectionId: $collectionId) {
+          tokens(first: 100) {
+            edges {
+              node {
+                tokenId
+                supply
+              }
             }
+          }
         }
+      }
     `;
     const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
     const TOKEN_IDS_TO_CHECK = ["1", "2", "3"]; // Use strings for comparison later
