@@ -44,10 +44,12 @@ app.get("/start-auth", async (req, res) => {
 // Step 2: Check Authentication Status (Polling) using GetWallet query
 app.get("/check-auth/:verificationId", async (req, res) => {
     const { verificationId } = req.params;
+  
     if (!verificationId) { return res.status(400).json({ error: "Verification ID is required" }); }
     const query = gql`
       query GetVerifiedWallet($verificationId: String!) {
         GetWallet(verificationId: $verificationId) {
+          id
           account { address }
           balances { free }
         }
@@ -59,7 +61,10 @@ app.get("/check-auth/:verificationId", async (req, res) => {
       const walletAddress = walletData?.account?.address;
       const enjBalanceWitoshi = walletData?.balances?.free ?? null;
       console.log(`Polling verification ${verificationId}: WalletData=${walletData ? 'Found' : 'Null'}, Address=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}`);
-      if (walletData && walletAddress) { res.json({ address: walletAddress, balance: enjBalanceWitoshi }); }
+      if (walletData && walletAddress) { 
+        const walletId = walletData?.id;
+        res.json({ address: walletAddress, balance: enjBalanceWitoshi, walletId });
+      }
       else { res.json({ address: null, balance: null }); }
     } catch (err) { if (err.response?.errors) { console.error("Check verification GraphQL error:", err.response.errors); } else { console.error("Check verification network/request error:", err.message); } res.status(200).json({ address: null, balance: null, error: "Failed to check verification status or not yet verified." }); }
 });
@@ -67,8 +72,13 @@ app.get("/check-auth/:verificationId", async (req, res) => {
 // --- Other Endpoints (Balances, Supply) ---
 
 // Get FT balances for a specific wallet - UPDATED QUERY using Account type
-app.get("/balances/:wallet", async (req, res) => {
-    const { wallet } = req.params; // This is the CAIP-10 wallet address
+app.get("/balances/:walletID", async (req, res) => {
+    const { walletID } = req.params; // This is the CAIP-10 wallet address
+    const variables = {
+      walletId: parseInt(walletId, 10),  // This comes from the URL path param
+      collectionId: COLLECTION_ID,       // This comes from your .env
+      tokenIds: TOKEN_IDS_TO_CHECK       // This is defined in your server.js
+    };
     if (!wallet) { return res.status(400).json({ error: "Wallet address required." }); }
 
     const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
