@@ -66,7 +66,7 @@ app.get("/check-auth/:verificationId", async (req, res) => {
 
 // --- Other Endpoints (Balances, Supply) ---
 
-// Get FT balances for a specific wallet - UPDATED QUERY using GetWallet
+// Get FT balances for a specific wallet - Using GetWallet query
 app.get("/balances/:wallet", async (req, res) => {
     const { wallet } = req.params; // This is the CAIP-10 wallet address
     if (!wallet) { return res.status(400).json({ error: "Wallet address required." }); }
@@ -75,14 +75,7 @@ app.get("/balances/:wallet", async (req, res) => {
     const TOKEN_IDS_TO_CHECK = [1, 2, 3]; // Specific tokens we care about
 
     // Using GetWallet query and requesting tokenAccounts connection within it
-    // Assuming the 'id' argument for GetWallet can take the CAIP-10 address directly.
-    // If GetWallet only works with verificationId, this approach won't work standalone.
-    // Let's try querying GetWallet by address (assuming it's possible)
-    // Alternative: Query GetAccount first by address, get internal ID, then query Wallet by internal ID?
-    // Sticking with the AI's structure but using GetWallet as the entry point based on previous errors.
-    // Need to verify if GetWallet accepts an 'address' argument instead of 'verificationId' or 'id'.
-    // For now, let's *assume* GetWallet works with address for fetching balances. This might need adjustment.
-
+    // Assuming GetWallet works with address for fetching balances.
     const query = gql`
         query GetFungibleTokenBalances($walletAddress: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
             # Attempting to query GetWallet using address - VERIFY IF THIS IS SUPPORTED
@@ -114,7 +107,6 @@ app.get("/balances/:wallet", async (req, res) => {
 
         const balances = { "1": 0, "2": 0, "3": 0 }; // Initialize with 0 counts
 
-        // Process the edges, adjusted path based on GetWallet query
         const edges = data?.GetWallet?.tokenAccounts?.edges;
         if (edges && Array.isArray(edges)) {
             edges.forEach(edge => {
@@ -128,7 +120,6 @@ app.get("/balances/:wallet", async (req, res) => {
             });
         } else {
             console.warn(`No tokenAccounts edges found for wallet ${wallet} and collection ${COLLECTION_ID} via GetWallet query.`);
-            // It's possible GetWallet doesn't accept 'address' or doesn't return tokenAccounts this way.
         }
 
         console.log(`NFT Balances found:`, balances);
@@ -137,26 +128,23 @@ app.get("/balances/:wallet", async (req, res) => {
     } catch (err) {
         console.error("Balance fetch error:", err.response?.errors || err.message);
         if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
-        // If the error is about GetWallet not accepting 'address', we need a different approach.
         res.status(500).json({ error: "Could not get balances", details: err.message });
     }
 });
 
 
-// Get supply - UPDATED QUERY using Collection type
+// Get supply - UPDATED QUERY using Collection type and 'supply' field
 app.get("/supply", async (req, res) => {
     // Using Collection query based on AI Assistant suggestion
     const query = gql`
         query GetTotalFungibleSupply($collectionId: BigInt!) {
-            Collection(id: $collectionId) { # Query Collection type
-                # Request tokens connection - verify arguments if filtering needed
-                # Requesting first 100 tokens to cover IDs 1, 2, 3
-                tokens(first: 100) {
+            Collection(id: $collectionId) {
+                tokens(first: 100) { # Request first 100 tokens
                     edges {
                         node {
-                            tokenId     # Token ID (BigInt)
-                            totalSupply # Use totalSupply field (assuming it exists)
-                            # type      # Optional: If needed to filter only FUNGIBLE
+                            tokenId
+                            supply # Use 'supply' field based on AI Assistant example
+                            # type # Optional type field
                         }
                     }
                 }
@@ -179,9 +167,9 @@ app.get("/supply", async (req, res) => {
             edges.forEach(edge => {
                 const node = edge?.node;
                 // Check if node exists and has the fields, and if it's one of the tokens we care about
-                if (node && node.tokenId && node.totalSupply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
-                    // Assuming node.type check isn't needed if we only have FTs with IDs 1,2,3
-                    totalMinted += parseInt(node.totalSupply || '0', 10);
+                // Use 'supply' field now
+                if (node && node.tokenId && node.supply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
+                    totalMinted += parseInt(node.supply || '0', 10);
                 }
             });
         } else {
