@@ -3,115 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RPS NFT Wallet Connect</title>
+    <title>RPS NFT Mint</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Custom CSS for the 3D flip effect and card appearance */
+        .perspective { perspective: 1000px; }
+        .card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
+        .card.flipped .card-inner { transform: rotateY(180deg); }
+        .card-front, .card-back { position: absolute; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; display: flex; justify-content: center; align-items: center; border-radius: 0.5rem; }
+        .card-front { transform: rotateY(180deg); }
+        @keyframes cardAppear { from { opacity: 0; transform: scale(0.8) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .card-appear { animation: cardAppear 0.3s ease-out forwards; opacity: 0; }
         /* Basic loading spinner */
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 1rem auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        /* Ensure elements don't overlap awkwardly */
-        body { display: flex; flex-direction: column; }
-        #app { flex-grow: 1; }
         /* Style for the QR code image */
-        #qr-image { width: 200px; height: 200px; margin: 0 auto; display: block; background-color: white; /* Add white bg in case image loading fails */ }
+        #qr-image { width: 200px; height: 200px; margin: 0 auto; display: block; background-color: white; }
     </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
 
-    <div id="app" class="text-center w-full max-w-lg mx-auto">
+    <div id="app" class="w-full max-w-6xl mx-auto flex flex-col md:flex-row gap-8">
 
-        <h1 class="text-3xl font-bold mb-6">🎮 RPS NFT Wallet</h1>
+        <!-- Left Side Panel -->
+        <aside id="side-panel" class="w-full md:w-1/3 lg:w-1/4 bg-black bg-opacity-20 p-6 rounded-2xl shadow-lg flex flex-col">
+            <h1 class="text-2xl font-bold mb-6 text-center">🎮 RPS NFT Wallet</h1>
 
-        <div id="connection-status" class="mb-4 text-lg">
-            Status: Not Connected
-        </div>
+            <div id="connection-status" class="mb-4 text-lg text-center">Status: Not Connected</div>
 
-        <div id="wallet-info" class="hidden mb-4 bg-black bg-opacity-20 p-3 rounded-lg text-sm">
-            <p><strong>Wallet:</strong> <span id="wallet-address" class="font-mono block break-all"></span></p>
-            <p class="mt-1"><strong>Balance:</strong> <span id="enj-balance" class="font-mono">--</span> cENJ</p>
-            <button id="disconnect-btn" class="hidden mt-3 bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
-                Disconnect
+            <!-- Wallet Info (Hidden Initially) -->
+            <div id="wallet-info" class="hidden mb-4 text-sm">
+                <p class="font-bold">Wallet:</p>
+                <p id="wallet-address" class="font-mono block break-all bg-black bg-opacity-25 p-2 rounded-md"></p>
+                <p class="mt-2 font-bold">Balance:</p>
+                <p><span id="enj-balance" class="font-mono">--</span> cENJ</p>
+                <button id="disconnect-btn" class="hidden mt-4 w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-3 text-sm rounded-full shadow transition duration-200">
+                    Disconnect
+                </button>
+            </div>
+
+            <!-- Balances (Hidden Initially) -->
+            <div id="balances" class="hidden my-4">
+                <h2 class="text-xl font-semibold mb-2 text-center">Your Tokens</h2>
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center bg-black bg-opacity-25 p-2 rounded-md"><span>✊ Rock</span> <span id="rock-count" class="font-bold">0</span></div>
+                    <div class="flex justify-between items-center bg-black bg-opacity-25 p-2 rounded-md"><span>📄 Paper</span> <span id="paper-count" class="font-bold">0</span></div>
+                    <div class="flex justify-between items-center bg-black bg-opacity-25 p-2 rounded-md"><span>✂️ Scissors</span> <span id="scissors-count" class="font-bold">0</span></div>
+                </div>
+            </div>
+
+            <!-- Supply Info (Hidden Initially) -->
+            <div id="progress" class="hidden mt-auto pt-4 border-t border-gray-500">
+                <h2 class="text-xl font-semibold mb-1 text-center">Supply Left</h2>
+                <p class="text-center"><span id="minted-count" class="font-bold">--</span> / <span id="max-supply-count" class="font-bold">--</span> Total</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="w-full md:w-2/3 lg:w-3/4 flex flex-col justify-center items-center">
+            <!-- Connect Button (shows when disconnected) -->
+            <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-8 text-lg rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out">
+                Connect Wallet to Start
             </button>
-        </div>
 
-        <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out mb-4">
-            Connect Wallet
-        </button>
-
-        <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
-            <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
-            <div class="relative">
+            <!-- QR Code Display (Hidden Initially) -->
+            <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
+                <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
                 <img id="qr-image" src="" alt="Scan QR Code" />
+                <p id="qr-status-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
+                <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
+                    Cancel
+                </button>
             </div>
-             <p id="qr-status-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
-            <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
-                Cancel
-            </button>
-        </div>
 
-        <div id="balances" class="hidden my-4 bg-black bg-opacity-20 p-4 rounded-lg">
-            <h2 class="text-xl font-semibold mb-2">Your Tokens</h2>
-            <div class="flex justify-around text-center">
-                <div><p class="text-4xl">✊</p><p>Rock: <span id="rock-count" class="font-bold">0</span></p></div>
-                <div><p class="text-4xl">📄</p><p>Paper: <span id="paper-count" class="font-bold">0</span></p></div>
-                <div><p class="text-4xl">✂️</p><p>Scissors: <span id="scissors-count" class="font-bold">0</span></p></div>
+            <!-- Minting Area (Hidden Initially) -->
+            <div id="minting-area" class="hidden w-full text-center">
+                <button id="buy-button" class="bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-bold py-4 px-8 text-lg rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out mb-4 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Buy Booster Pack (10 cENJ)
+                </button>
+                <div id="mint-status" class="my-4 min-h-[50px]">
+                     <div id="mint-loader" class="loader hidden"></div>
+                     <p id="mint-result" class="text-xl font-semibold"></p>
+                </div>
+                <!-- Card Container (for 3 cards) -->
+                <div id="card-container" class="hidden mt-6 flex flex-wrap justify-center gap-4">
+                    <div class="reveal-card-item card perspective w-32 h-48 md:w-40 md:h-60"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-5xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-6xl md:text-7xl rounded-lg flex justify-center items-center"></div></div></div>
+                    <div class="reveal-card-item card perspective w-32 h-48 md:w-40 md:h-60"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-5xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-6xl md:text-7xl rounded-lg flex justify-center items-center"></div></div></div>
+                    <div class="reveal-card-item card perspective w-32 h-48 md:w-40 md:h-60"> <div class="card-inner shadow-xl"><div class="card-back bg-purple-600 text-white text-5xl font-bold rounded-lg flex justify-center items-center">?</div><div class="card-front bg-white text-6xl md:text-7xl rounded-lg flex justify-center items-center"></div></div></div>
+                </div>
+                <button id="dismiss-button" class="hidden mt-6 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg shadow transition duration-200">
+                    Dismiss Pack
+                </button>
             </div>
-        </div>
-
-        <div id="progress" class="hidden my-4 bg-black bg-opacity-20 p-3 rounded-lg">
-            <h2 class="text-xl font-semibold mb-1">Supply Left</h2>
-            <p><span id="minted-count" class="font-bold">--</span> / <span id="max-supply-count" class="font-bold">--</span> Total</p>
-        </div>
-
+        </main>
     </div>
 
     <script>
         // --- Configuration ---
-        const backendUrl = "https://mint-rps-duel.onrender.com"; // Your deployed backend URL
-        const pollingInterval = 3000; // Check auth status every 3 seconds
-        const tokenMap = { // Map Token IDs from backend to display info
-            1: { name: "Rock", emoji: "✊" },
-            2: { name: "Paper", emoji: "📄" },
-            3: { name: "Scissors", emoji: "✂️" }
-        };
+        const backendUrl = "https://mint-rps-duel.onrender.com";
+        const pollingInterval = 3000;
+        const tokenMap = { 1: { name: "Rock", emoji: "✊" }, 2: { name: "Paper", emoji: "📄" }, 3: { name: "Scissors", emoji: "✂️" } };
+        const cardAppearDelay = 150;
+        const cardRevealDelay = 300;
 
         // --- State Variables ---
-        let userWallet = null; // CAIP-10 Address
-        let verificationId = null;
-        let isConnected = false;
-        let pollIntervalId = null;
-        let enjBalance = null;
-        // userWalletId is no longer needed in the frontend
-        // let userWalletId = null;
+        let userWallet = null, verificationId = null, isConnected = false, pollIntervalId = null, enjBalance = null, userWalletId = null;
 
         // --- DOM Element References ---
-        const connectBtn = document.getElementById("connect-btn");
-        const disconnectBtn = document.getElementById("disconnect-btn");
-        const cancelBtn = document.getElementById("cancel-btn");
-        const qrContainer = document.getElementById("qr-container");
-        const qrImage = document.getElementById("qr-image");
-        const qrStatusText = document.getElementById("qr-status-text");
-        const connectionStatus = document.getElementById("connection-status");
-        const walletInfo = document.getElementById("wallet-info");
-        const walletAddressSpan = document.getElementById("wallet-address");
-        const enjBalanceSpan = document.getElementById("enj-balance");
-        const balancesDiv = document.getElementById("balances");
-        const progressDiv = document.getElementById("progress");
-        const rockCountSpan = document.getElementById("rock-count");
-        const paperCountSpan = document.getElementById("paper-count");
-        const scissorsCountSpan = document.getElementById("scissors-count");
-        const mintedCountSpan = document.getElementById("minted-count");
-        const maxSupplyCountSpan = document.getElementById("max-supply-count");
-
+        const connectBtn = document.getElementById("connect-btn"), disconnectBtn = document.getElementById("disconnect-btn"), cancelBtn = document.getElementById("cancel-btn"), qrContainer = document.getElementById("qr-container"), qrImage = document.getElementById("qr-image"), qrStatusText = document.getElementById("qr-status-text"), connectionStatus = document.getElementById("connection-status"), walletInfo = document.getElementById("wallet-info"), walletAddressSpan = document.getElementById("wallet-address"), enjBalanceSpan = document.getElementById("enj-balance"), balancesDiv = document.getElementById("balances"), progressDiv = document.getElementById("progress"), rockCountSpan = document.getElementById("rock-count"), paperCountSpan = document.getElementById("paper-count"), scissorsCountSpan = document.getElementById("scissors-count"), mintedCountSpan = document.getElementById("minted-count"), maxSupplyCountSpan = document.getElementById("max-supply-count"), mintingArea = document.getElementById("minting-area"), buyButton = document.getElementById("buy-button"), dismissButton = document.getElementById("dismiss-button"), mintStatusDiv = document.getElementById("mint-status"), mintLoader = document.getElementById("mint-loader"), mintResult = document.getElementById("mint-result"), cardContainer = document.getElementById("card-container"), revealCards = cardContainer.querySelectorAll('.reveal-card-item');
 
         // --- Helper Functions ---
-        function shortenAddress(address) { /* ... unchanged ... */ if (!address || address.length < 10) return address; const parts = address.split(':'); const addr = parts[parts.length - 1]; return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`; }
-        function formatEnjBalance(witoshiBalance) { /* ... unchanged ... */ if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--'; try { const balanceBigInt = BigInt(witoshiBalance); const enjValue = Number(balanceBigInt) / 1e18; return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }); } catch (e) { console.error("Error formatting balance:", e); return '--'; } }
+        function shortenAddress(address) { if (!address || address.length < 10) return address; const parts = address.split(':'); const addr = parts[parts.length - 1]; return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`; }
+        function formatEnjBalance(witoshiBalance) { if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--'; try { const enjValue = Number(BigInt(witoshiBalance)) / 1e18; return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }); } catch (e) { return '--'; } }
+        function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
         // --- UI Update Functions ---
         function updateUI() {
             if (isConnected && userWallet) {
-                // Connected State
                 connectionStatus.textContent = "Status: Connected";
                 walletAddressSpan.textContent = shortenAddress(userWallet);
                 enjBalanceSpan.textContent = formatEnjBalance(enjBalance);
@@ -122,9 +130,9 @@
                 disconnectBtn.classList.remove('hidden');
                 balancesDiv.classList.remove('hidden');
                 progressDiv.classList.remove('hidden');
+                mintingArea.classList.remove('hidden'); // Show minting area
                 loadBalancesAndSupply();
             } else {
-                // Disconnected State
                 connectionStatus.textContent = "Status: Not Connected";
                 connectBtn.classList.remove('hidden');
                 connectBtn.disabled = false;
@@ -133,28 +141,28 @@
                 walletInfo.classList.add('hidden');
                 balancesDiv.classList.add('hidden');
                 progressDiv.classList.add('hidden');
+                mintingArea.classList.add('hidden'); // Hide minting area
+                cardContainer.classList.add('hidden');
+                dismissButton.classList.add('hidden');
+                mintResult.textContent = '';
             }
+            mintLoader.classList.add('hidden');
         }
 
         // --- Core Logic ---
-
-        // 1. Start Connection Process (RequestAccount Flow)
         async function connectWallet() {
             connectionStatus.textContent = "Status: Connecting...";
             connectBtn.disabled = true;
             connectBtn.classList.add('hidden');
             qrContainer.classList.add('hidden');
             cancelBtn.classList.remove('hidden');
-
             try {
                 const res = await fetch(`${backendUrl}/start-auth`);
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 const data = await res.json();
-                console.log("🔑 Received start-auth response:", data);
                 if (!data.verificationId || !data.qrCode) { throw new Error("Missing verificationId or qrCode URL from backend!"); }
                 verificationId = data.verificationId;
                 qrImage.src = data.qrCode;
-                console.log("QR Code image source set to:", data.qrCode);
                 qrContainer.classList.remove("hidden");
                 connectionStatus.textContent = "Status: Scan QR Code";
                 qrStatusText.textContent = "Waiting for connection...";
@@ -169,15 +177,15 @@
             }
         }
 
-        // 2. Poll for Verification Status
         function startPolling() {
             if (pollIntervalId) clearInterval(pollIntervalId);
             if (!verificationId) { console.error("Cannot start polling without verificationId"); return; }
-            console.log(`Starting polling for verificationId: ${verificationId}`);
+            const currentVerificationId = verificationId;
+            console.log(`Starting polling for verificationId: ${currentVerificationId}`);
             pollIntervalId = setInterval(async () => {
-                if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
+                if (verificationId !== currentVerificationId) { clearInterval(pollIntervalId); return; }
                 try {
-                    const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
+                    const check = await fetch(`${backendUrl}/check-auth/${currentVerificationId}`);
                     if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } return; }
                     const status = await check.json();
                     if (status.address) {
@@ -185,8 +193,7 @@
                         clearInterval(pollIntervalId); pollIntervalId = null;
                         userWallet = status.address;
                         enjBalance = status.balance;
-                        // userWalletId is no longer needed
-                        verificationId = null;
+                        userWalletId = status.walletId;
                         isConnected = true;
                         updateUI();
                     }
@@ -194,55 +201,101 @@
             }, pollingInterval);
         }
 
-        // 3. Cancel Connection Process
         function cancelConnection() {
-            console.log("Connection cancelled by user.");
             if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
-            verificationId = null; isConnected = false; userWallet = null; enjBalance = null;
+            verificationId = null; isConnected = false; userWallet = null; enjBalance = null; userWalletId = null;
             qrContainer.classList.add('hidden');
             updateUI();
         }
 
-        // 4. Disconnect Wallet
         function disconnectWallet() {
-            console.log("Disconnecting wallet.");
             if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
-            verificationId = null; isConnected = false; userWallet = null; enjBalance = null;
+            verificationId = null; isConnected = false; userWallet = null; enjBalance = null; userWalletId = null;
             updateUI();
         }
 
-        // 5. Load Balances and Supply
         async function loadBalancesAndSupply() {
-             if (!isConnected || !userWallet) { // Use userWallet (address) for balance check
-                 console.warn("Cannot load balances without wallet address.");
-                 return;
-             }
+             if (!isConnected || !userWallet) { return; }
              console.log("Loading balances and supply for wallet:", userWallet);
              try {
-                 // UPDATED: Use userWallet (address) for the /balances endpoint
                  const [tokensRes, supplyRes] = await Promise.all([
                      fetch(`${backendUrl}/balances/${encodeURIComponent(userWallet)}`),
                      fetch(`${backendUrl}/supply`)
                  ]);
-                 if (!tokensRes.ok || !supplyRes.ok) { const tokensError = !tokensRes.ok ? await tokensRes.text() : ''; const supplyError = !supplyRes.ok ? await supplyRes.text() : ''; console.error(`Fetch error: Balances=${tokensRes.status} ${tokensError}, Supply=${supplyRes.status} ${supplyError}`); throw new Error("Failed to fetch balances or supply"); }
+                 if (!tokensRes.ok || !supplyRes.ok) { throw new Error("Failed to fetch balances or supply"); }
                  const tokens = await tokensRes.json();
                  const supply = await supplyRes.json();
-                 console.log("Balances:", tokens, "Supply:", supply);
                  rockCountSpan.textContent = tokens["1"] || 0;
                  paperCountSpan.textContent = tokens["2"] || 0;
                  scissorsCountSpan.textContent = tokens["3"] || 0;
                  mintedCountSpan.textContent = supply.totalMinted ?? '--';
                  maxSupplyCountSpan.textContent = supply.totalMaxSupply ?? '--';
+                 if (supply.remaining <= 0) { buyButton.disabled = true; buyButton.textContent = "Sold Out"; }
+                 else { buyButton.disabled = false; buyButton.textContent = "Buy Booster Pack (10 cENJ)"; }
              } catch (err) { console.error("❌ Error loading balances/supply:", err); }
+        }
+
+        async function buyPack() {
+            if (!isConnected || !verificationId) { mintResult.textContent = "Error: Wallet not verified properly for minting."; return; }
+            console.log("🚀 Initiating mint process with verificationId:", verificationId);
+            buyButton.disabled = true;
+            mintLoader.classList.remove('hidden');
+            mintResult.textContent = 'Minting... Please approve payment in wallet.';
+            cardContainer.classList.add('hidden');
+            dismissButton.classList.add('hidden');
+            resetCardsState();
+            try {
+                const res = await fetch(`${backendUrl}/mint`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verificationId: verificationId }) });
+                if (!res.ok) { let errorMsg = `Mint request failed! Status: ${res.status}`; try { const errorData = await res.json(); errorMsg = errorData.details || errorData.error || errorMsg; } catch (e) {} throw new Error(errorMsg); }
+                const result = await res.json();
+                if (result.success && Array.isArray(result.mintedTokens)) {
+                    mintResult.textContent = `Success! Opened a pack!`;
+                    revealMultipleCards(result.mintedTokens);
+                    await wait(2000);
+                    loadBalancesAndSupply();
+                } else { throw new Error(result.details || result.error || "Mint failed: Invalid response from server."); }
+            } catch (err) { console.error("❌ Minting error:", err); mintResult.textContent = `Error: ${err.message}`; loadBalancesAndSupply(); }
+            finally { mintLoader.classList.add('hidden'); }
+        }
+
+        function resetCardsState() {
+            revealCards.forEach(card => {
+                card.classList.remove('flipped', 'card-appear');
+                card.style.animationDelay = '0s';
+                const front = card.querySelector('.card-front');
+                if (front) front.textContent = '';
+            });
+        }
+
+        async function revealMultipleCards(mintedTokens) {
+            if (!Array.isArray(mintedTokens)) return;
+            resetCardsState();
+            const cardFronts = cardContainer.querySelectorAll('.card-front');
+            const cardsToProcess = Math.min(mintedTokens.length, revealCards.length);
+            for (let i = 0; i < cardsToProcess; i++) { const token = mintedTokens[i]; if (revealCards[i]) { const tokenInfo = tokenMap[token.id]; cardFronts[i].textContent = tokenInfo ? tokenInfo.emoji : '?'; } }
+            cardContainer.classList.remove('hidden');
+            for (let i = 0; i < cardsToProcess; i++) { if (revealCards[i]) { revealCards[i].style.animationDelay = `${i * cardAppearDelay}ms`; revealCards[i].classList.add('card-appear'); } }
+            await wait(cardsToProcess * cardAppearDelay + 100);
+            for (let i = 0; i < cardsToProcess; i++) { if (revealCards[i]) { await wait(cardRevealDelay); revealCards[i].classList.add('flipped'); } }
+            await wait(cardRevealDelay);
+            dismissButton.classList.remove('hidden');
+        }
+
+        function dismissCards() {
+            cardContainer.classList.add('hidden');
+            dismissButton.classList.add('hidden');
+            resetCardsState();
+            mintResult.textContent = '';
+            loadBalancesAndSupply();
         }
 
         // --- Initial Setup ---
         connectBtn.addEventListener("click", connectWallet);
         disconnectBtn.addEventListener("click", disconnectWallet);
         cancelBtn.addEventListener("click", cancelConnection);
+        buyButton.addEventListener("click", buyPack);
+        dismissButton.addEventListener("click", dismissCards);
         updateUI();
-
     </script>
-
 </body>
 </html>
