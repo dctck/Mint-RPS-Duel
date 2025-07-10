@@ -1,248 +1,213 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RPS NFT Wallet Connect</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Basic loading spinner */
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 1rem auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        /* Ensure elements don't overlap awkwardly */
-        body { display: flex; flex-direction: column; }
-        #app { flex-grow: 1; }
-        /* Style for the QR code image */
-        #qr-image { width: 200px; height: 200px; margin: 0 auto; display: block; background-color: white; /* Add white bg in case image loading fails */ }
-    </style>
-</head>
-<body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const { request, gql } = require("graphql-request");
+const crypto = require('crypto');
 
-    <div id="app" class="text-center w-full max-w-lg mx-auto">
+const app = express();
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running at http://localhost:${PORT}`);
+});
 
-        <h1 class="text-3xl font-bold mb-6">🎮 RPS NFT Wallet</h1>
+app.use(cors());
+app.use(bodyParser.json());
 
-        <div id="connection-status" class="mb-4 text-lg">
-            Status: Not Connected
-        </div>
+// --- Configuration ---
+const PLATFORM_URL = process.env.PLATFORM_URL;
+const AUTH_TOKEN = process.env.ENJIN_API_TOKEN;
+// Minting constants are removed as the /mint endpoint is not used
 
-        <div id="wallet-info" class="hidden mb-4 bg-black bg-opacity-20 p-3 rounded-lg text-sm">
-            <p><strong>Wallet:</strong> <span id="wallet-address" class="font-mono block break-all"></span></p>
-            <p class="mt-1"><strong>Balance:</strong> <span id="enj-balance" class="font-mono">--</span> cENJ</p>
-            <button id="disconnect-btn" class="hidden mt-3 bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
-                Disconnect
-            </button>
-        </div>
+// --- API Endpoints ---
 
-        <button id="connect-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out mb-4">
-            Connect Wallet
-        </button>
+// Step 1: Start wallet verification process using RequestAccount query
+app.get("/start-auth", async (req, res) => {
+  const query = gql`
+    query RequestAccount {
+      RequestAccount {
+        qrCode
+        verificationId
+      }
+    }
+  `;
+  try {
+    console.log("Requesting account verification from Enjin Platform...");
+    const data = await request({ url: PLATFORM_URL, document: query, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+    const verificationData = data?.RequestAccount;
+    if (!verificationData?.verificationId || !verificationData?.qrCode) { throw new Error("Failed to get required verificationId or qrCode from RequestAccount response."); }
+    console.log("Account verification request initiated:", verificationData);
+    res.json(verificationData);
+  } catch (err) { console.error("Verification request error:", err.response?.errors || err.message); if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); } else if (err.response?.error) { console.error("Raw API Error Response:", err.response.error); } res.status(500).json({ error: "Verification request failed", details: err.message }); }
+});
 
-        <div id="qr-container" class="hidden my-4 p-4 bg-white rounded-lg inline-block shadow-xl relative">
-            <h3 class="text-black text-lg font-semibold mb-2">Scan QR with Enjin Wallet</h3>
-            <div class="relative">
-                <img id="qr-image" src="" alt="Scan QR Code" />
-            </div>
-             <p id="qr-status-text" class="text-gray-600 text-sm mt-2">Waiting for connection...</p>
-            <button id="cancel-btn" class="hidden mt-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-1 px-3 text-xs rounded-full shadow transition duration-200">
-                Cancel
-            </button>
-        </div>
-
-        <div id="balances" class="hidden my-4 bg-black bg-opacity-20 p-4 rounded-lg">
-            <h2 class="text-xl font-semibold mb-2">Your Tokens</h2>
-            <div class="flex justify-around text-center">
-                <div><p class="text-4xl">✊</p><p>Rock: <span id="rock-count" class="font-bold">0</span></p></div>
-                <div><p class="text-4xl">📄</p><p>Paper: <span id="paper-count" class="font-bold">0</span></p></div>
-                <div><p class="text-4xl">✂️</p><p>Scissors: <span id="scissors-count" class="font-bold">0</span></p></div>
-            </div>
-        </div>
-
-        <div id="progress" class="hidden my-4 bg-black bg-opacity-20 p-3 rounded-lg">
-            <h2 class="text-xl font-semibold mb-1">Supply Left</h2>
-            <p><span id="minted-count" class="font-bold">--</span> / <span id="max-supply-count" class="font-bold">--</span> Total</p>
-        </div>
-
-    </div>
-
-    <script>
-        // --- Configuration ---
-        const backendUrl = "https://mint-rps-duel.onrender.com"; // Your deployed backend URL
-        const pollingInterval = 3000; // Check auth status every 3 seconds
-        const tokenMap = { // Map Token IDs from backend to display info
-            1: { name: "Rock", emoji: "✊" },
-            2: { name: "Paper", emoji: "📄" },
-            3: { name: "Scissors", emoji: "✂️" }
-        };
-
-        // --- State Variables ---
-        let userWallet = null; // CAIP-10 Address
-        let verificationId = null;
-        let isConnected = false;
-        let pollIntervalId = null;
-        let enjBalance = null;
-        // userWalletId is no longer needed in the frontend
-        // let userWalletId = null;
-
-        // --- DOM Element References ---
-        const connectBtn = document.getElementById("connect-btn");
-        const disconnectBtn = document.getElementById("disconnect-btn");
-        const cancelBtn = document.getElementById("cancel-btn");
-        const qrContainer = document.getElementById("qr-container");
-        const qrImage = document.getElementById("qr-image");
-        const qrStatusText = document.getElementById("qr-status-text");
-        const connectionStatus = document.getElementById("connection-status");
-        const walletInfo = document.getElementById("wallet-info");
-        const walletAddressSpan = document.getElementById("wallet-address");
-        const enjBalanceSpan = document.getElementById("enj-balance");
-        const balancesDiv = document.getElementById("balances");
-        const progressDiv = document.getElementById("progress");
-        const rockCountSpan = document.getElementById("rock-count");
-        const paperCountSpan = document.getElementById("paper-count");
-        const scissorsCountSpan = document.getElementById("scissors-count");
-        const mintedCountSpan = document.getElementById("minted-count");
-        const maxSupplyCountSpan = document.getElementById("max-supply-count");
-
-
-        // --- Helper Functions ---
-        function shortenAddress(address) { /* ... unchanged ... */ if (!address || address.length < 10) return address; const parts = address.split(':'); const addr = parts[parts.length - 1]; return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`; }
-        function formatEnjBalance(witoshiBalance) { /* ... unchanged ... */ if (witoshiBalance === null || typeof witoshiBalance === 'undefined') return '--'; try { const balanceBigInt = BigInt(witoshiBalance); const enjValue = Number(balanceBigInt) / 1e18; return enjValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }); } catch (e) { console.error("Error formatting balance:", e); return '--'; } }
-
-        // --- UI Update Functions ---
-        function updateUI() {
-            if (isConnected && userWallet) {
-                // Connected State
-                connectionStatus.textContent = "Status: Connected";
-                walletAddressSpan.textContent = shortenAddress(userWallet);
-                enjBalanceSpan.textContent = formatEnjBalance(enjBalance);
-                connectBtn.classList.add('hidden');
-                cancelBtn.classList.add('hidden');
-                qrContainer.classList.add('hidden');
-                walletInfo.classList.remove('hidden');
-                disconnectBtn.classList.remove('hidden');
-                balancesDiv.classList.remove('hidden');
-                progressDiv.classList.remove('hidden');
-                loadBalancesAndSupply();
-            } else {
-                // Disconnected State
-                connectionStatus.textContent = "Status: Not Connected";
-                connectBtn.classList.remove('hidden');
-                connectBtn.disabled = false;
-                disconnectBtn.classList.add('hidden');
-                cancelBtn.classList.add('hidden');
-                walletInfo.classList.add('hidden');
-                balancesDiv.classList.add('hidden');
-                progressDiv.classList.add('hidden');
-            }
+// Step 2: Check Authentication Status (Polling) using GetWallet query
+app.get("/check-auth/:verificationId", async (req, res) => {
+    const { verificationId } = req.params;
+    if (!verificationId) { return res.status(400).json({ error: "Verification ID is required" }); }
+    // Fetch internal wallet ID (id) along with other details
+    const query = gql`
+      query GetVerifiedWallet($verificationId: String!) {
+        GetWallet(verificationId: $verificationId) {
+          id # Internal Wallet ID
+          account { address }
+          balances { free }
         }
+      }
+    `;
+    try {
+      const data = await request({ url: PLATFORM_URL, document: query, variables: { verificationId: verificationId }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+      const walletData = data?.GetWallet;
+      const walletAddress = walletData?.account?.address;
+      const enjBalanceWitoshi = walletData?.balances?.free ?? null;
+      const internalWalletId = walletData?.id ?? null; // Get internal ID
+      console.log(`Polling verification ${verificationId}: WalletData=${walletData ? 'Found' : 'Null'}, Address=${walletAddress || 'N/A'}, Balance=${enjBalanceWitoshi ?? 'N/A'}, WalletID=${internalWalletId ?? 'N/A'}`);
+      if (walletData && walletAddress && internalWalletId) {
+          res.json({
+              address: walletAddress,
+              balance: enjBalanceWitoshi,
+              walletId: internalWalletId // Send internal ID to frontend
+          });
+      }
+      else { res.json({ address: null, balance: null, walletId: null }); }
+    } catch (err) { if (err.response?.errors) { console.error("Check verification GraphQL error:", err.response.errors); } else { console.error("Check verification network/request error:", err.message); } res.status(200).json({ address: null, balance: null, walletId: null, error: "Failed to check verification status or not yet verified." }); }
+});
 
-        // --- Core Logic ---
 
-        // 1. Start Connection Process (RequestAccount Flow)
-        async function connectWallet() {
-            connectionStatus.textContent = "Status: Connecting...";
-            connectBtn.disabled = true;
-            connectBtn.classList.add('hidden');
-            qrContainer.classList.add('hidden');
-            cancelBtn.classList.remove('hidden');
+// --- Other Endpoints (Balances, Supply) ---
 
-            try {
-                const res = await fetch(`${backendUrl}/start-auth`);
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                const data = await res.json();
-                console.log("🔑 Received start-auth response:", data);
-                if (!data.verificationId || !data.qrCode) { throw new Error("Missing verificationId or qrCode URL from backend!"); }
-                verificationId = data.verificationId;
-                qrImage.src = data.qrCode;
-                console.log("QR Code image source set to:", data.qrCode);
-                qrContainer.classList.remove("hidden");
-                connectionStatus.textContent = "Status: Scan QR Code";
-                qrStatusText.textContent = "Waiting for connection...";
-                startPolling();
-            } catch (err) {
-                console.error("❌ Failed to start verification session:", err);
-                connectionStatus.textContent = `Error: ${err.message}. Please try again.`;
-                connectBtn.disabled = false;
-                connectBtn.classList.remove('hidden');
-                cancelBtn.classList.add('hidden');
-                qrContainer.classList.add("hidden");
+// Get FT balances for a specific wallet - UPDATED to query by account address
+app.get("/balances/:walletAddress", async (req, res) => {
+  const { walletAddress } = req.params; // Use the public CAIP-10 address
+
+  if (!walletAddress) {
+    return res.status(400).json({ error: "Wallet address required." });
+  }
+
+  const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
+  const TOKEN_IDS_TO_CHECK = [1, 2, 3];
+
+  // Using GetWallet query with 'account' argument as confirmed by Enjin dev
+  const query = gql`
+    query GetWalletTokenBalances($account: String!, $collectionId: BigInt!, $tokenIds: [BigInt!]) {
+      GetWallet(account: $account) { # Use account (address string)
+        tokenAccounts(
+          collectionIds: [$collectionId]
+          tokenIds: $tokenIds
+        ) {
+          edges {
+            node {
+              token {
+                tokenId
+              }
+              balance
             }
+          }
         }
+      }
+    }
+  `;
 
-        // 2. Poll for Verification Status
-        function startPolling() {
-            if (pollIntervalId) clearInterval(pollIntervalId);
-            if (!verificationId) { console.error("Cannot start polling without verificationId"); return; }
-            console.log(`Starting polling for verificationId: ${verificationId}`);
-            pollIntervalId = setInterval(async () => {
-                if (!verificationId) { console.log("Polling stopped: No verificationId."); clearInterval(pollIntervalId); return; }
-                try {
-                    const check = await fetch(`${backendUrl}/check-auth/${verificationId}`);
-                    if (!check.ok) { if (check.status !== 404) { console.warn(`Polling check failed: ${check.status}`); } return; }
-                    const status = await check.json();
-                    if (status.address) {
-                        console.log("Polling success: Wallet verified!", status);
-                        clearInterval(pollIntervalId); pollIntervalId = null;
-                        userWallet = status.address;
-                        enjBalance = status.balance;
-                        // userWalletId is no longer needed
-                        verificationId = null;
-                        isConnected = true;
-                        updateUI();
+  const variables = {
+    account: walletAddress, // Pass the address string
+    collectionId: COLLECTION_ID,
+    tokenIds: TOKEN_IDS_TO_CHECK,
+  };
+
+  try {
+    console.log(`Fetching FT balances for wallet address: ${walletAddress}, collection: ${COLLECTION_ID}`);
+    const data = await request({
+      url: PLATFORM_URL,
+      document: query,
+      variables,
+      requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    });
+
+    const balances = { "1": 0, "2": 0, "3": 0 };
+    const edges = data?.GetWallet?.tokenAccounts?.edges;
+
+    if (edges && Array.isArray(edges)) {
+      edges.forEach(edge => {
+        const node = edge?.node;
+        if (node && node.token && node.token.tokenId && node.balance) {
+          const tokenIdStr = node.token.tokenId.toString();
+          if (balances.hasOwnProperty(tokenIdStr)) {
+            balances[tokenIdStr] = parseInt(node.balance, 10);
+          }
+        }
+      });
+    } else {
+      console.warn(`No tokenAccounts found for wallet address ${walletAddress}.`);
+    }
+
+    console.log("FT Balances:", balances);
+    res.json(balances);
+
+  } catch (err) {
+    console.error("Balance fetch error:", err.response?.errors || err.message);
+    if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
+    res.status(500).json({ error: "Could not get balances", details: err.message });
+  }
+});
+
+
+// Get supply - UPDATED to use 'id' argument for GetCollection
+app.get("/supply", async (req, res) => {
+    // Using GetCollection query with 'id' argument
+    const query = gql`
+        query GetTotalFungibleSupply($collectionId: BigInt!) {
+            GetCollection(id: $collectionId) { # Use 'id' argument
+                tokens(first: 100) {
+                    edges {
+                        node {
+                            tokenId
+                            supply
+                            capSupply
+                        }
                     }
-                } catch (err) { console.error("❌ Polling error:", err); }
-            }, pollingInterval);
+                }
+            }
+        }
+    `;
+    const COLLECTION_ID = parseInt(process.env.COLLECTION_ID || '0');
+    const TOKEN_IDS_TO_CHECK = ["1", "2", "3"];
+
+    try {
+        console.log(`Fetching token supply for collection: ${COLLECTION_ID}`);
+        const data = await request({ url: PLATFORM_URL, document: query, variables: { collectionId: COLLECTION_ID }, requestHeaders: { Authorization: `Bearer ${AUTH_TOKEN}` } });
+
+        let totalMinted = 0;
+        let totalMaxSupply = 0;
+        const edges = data?.GetCollection?.tokens?.edges;
+        if (edges && Array.isArray(edges)) {
+            edges.forEach(edge => {
+                const node = edge?.node;
+                if (node && node.tokenId && node.supply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
+                    totalMinted += parseInt(node.supply || '0', 10);
+                    totalMaxSupply += parseInt(node.capSupply || '0', 10);
+                }
+            });
+        } else {
+            console.warn("Could not accurately determine total minted supply from GetCollection query.");
+            totalMaxSupply = 150; // Fallback if needed
         }
 
-        // 3. Cancel Connection Process
-        function cancelConnection() {
-            console.log("Connection cancelled by user.");
-            if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
-            verificationId = null; isConnected = false; userWallet = null; enjBalance = null;
-            qrContainer.classList.add('hidden');
-            updateUI();
-        }
+        const remaining = totalMaxSupply - totalMinted;
+        console.log(`Total minted (IDs ${TOKEN_IDS_TO_CHECK.join(', ')}): ${totalMinted}, Remaining: ${remaining}`);
+        res.json({
+            totalMinted,
+            totalMaxSupply,
+            remaining: Math.max(0, remaining)
+        });
 
-        // 4. Disconnect Wallet
-        function disconnectWallet() {
-            console.log("Disconnecting wallet.");
-            if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
-            verificationId = null; isConnected = false; userWallet = null; enjBalance = null;
-            updateUI();
-        }
+    } catch (err) {
+        console.error("Supply error:", err.response?.errors || err.message);
+        if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
+        res.status(500).json({ error: "Could not get supply", details: err.message });
+    }
+});
 
-        // 5. Load Balances and Supply
-        async function loadBalancesAndSupply() {
-             if (!isConnected || !userWallet) { // Use userWallet (address) for balance check
-                 console.warn("Cannot load balances without wallet address.");
-                 return;
-             }
-             console.log("Loading balances and supply for wallet:", userWallet);
-             try {
-                 // UPDATED: Use userWallet (address) for the /balances endpoint
-                 const [tokensRes, supplyRes] = await Promise.all([
-                     fetch(`${backendUrl}/balances/${encodeURIComponent(userWallet)}`),
-                     fetch(`${backendUrl}/supply`)
-                 ]);
-                 if (!tokensRes.ok || !supplyRes.ok) { const tokensError = !tokensRes.ok ? await tokensRes.text() : ''; const supplyError = !supplyRes.ok ? await supplyRes.text() : ''; console.error(`Fetch error: Balances=${tokensRes.status} ${tokensError}, Supply=${supplyRes.status} ${supplyError}`); throw new Error("Failed to fetch balances or supply"); }
-                 const tokens = await tokensRes.json();
-                 const supply = await supplyRes.json();
-                 console.log("Balances:", tokens, "Supply:", supply);
-                 rockCountSpan.textContent = tokens["1"] || 0;
-                 paperCountSpan.textContent = tokens["2"] || 0;
-                 scissorsCountSpan.textContent = tokens["3"] || 0;
-                 mintedCountSpan.textContent = supply.totalMinted ?? '--';
-                 maxSupplyCountSpan.textContent = supply.totalMaxSupply ?? '--';
-             } catch (err) { console.error("❌ Error loading balances/supply:", err); }
-        }
-
-        // --- Initial Setup ---
-        connectBtn.addEventListener("click", connectWallet);
-        disconnectBtn.addEventListener("click", disconnectWallet);
-        cancelBtn.addEventListener("click", cancelConnection);
-        updateUI();
-
-    </script>
-
-</body>
-</html>
+// Basic root route (optional)
+app.get("/", (req, res) => {
+    res.send("RPS Auth Backend is running.");
+});
