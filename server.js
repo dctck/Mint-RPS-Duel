@@ -17,7 +17,6 @@ app.use(bodyParser.json());
 // --- Configuration ---
 const PLATFORM_URL = process.env.PLATFORM_URL;
 const AUTH_TOKEN = process.env.ENJIN_API_TOKEN;
-// Minting constants are removed as the /mint endpoint is not used
 
 // --- API Endpoints ---
 
@@ -45,7 +44,7 @@ app.get("/start-auth", async (req, res) => {
 app.get("/check-auth/:verificationId", async (req, res) => {
     const { verificationId } = req.params;
     if (!verificationId) { return res.status(400).json({ error: "Verification ID is required" }); }
-    // Fetch internal wallet ID (id) along with other details
+    // Also fetch internal wallet ID (id) needed for /balances query
     const query = gql`
       query GetVerifiedWallet($verificationId: String!) {
         GetWallet(verificationId: $verificationId) {
@@ -76,7 +75,7 @@ app.get("/check-auth/:verificationId", async (req, res) => {
 
 // --- Other Endpoints (Balances, Supply) ---
 
-// Get FT balances for a specific wallet - UPDATED to query by account address
+// Get FT balances for a specific wallet
 app.get("/balances/:walletAddress", async (req, res) => {
   const { walletAddress } = req.params; // Use the public CAIP-10 address
 
@@ -151,12 +150,12 @@ app.get("/balances/:walletAddress", async (req, res) => {
 });
 
 
-// Get supply - UPDATED to use 'id' argument for GetCollection
+// Get supply - UPDATED to use 'collectionId' argument for GetCollection
 app.get("/supply", async (req, res) => {
-    // Using GetCollection query with 'id' argument
+    // Using GetCollection query with 'collectionId' argument
     const query = gql`
         query GetTotalFungibleSupply($collectionId: BigInt!) {
-            GetCollection(id: $collectionId) { # Use 'id' argument
+            GetCollection(collectionId: $collectionId) { # Use 'collectionId' argument
                 tokens(first: 100) {
                     edges {
                         node {
@@ -182,7 +181,7 @@ app.get("/supply", async (req, res) => {
         if (edges && Array.isArray(edges)) {
             edges.forEach(edge => {
                 const node = edge?.node;
-                if (node && node.tokenId && node.supply && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
+                if (node && node.tokenId && TOKEN_IDS_TO_CHECK.includes(node.tokenId.toString())) {
                     totalMinted += parseInt(node.supply || '0', 10);
                     totalMaxSupply += parseInt(node.capSupply || '0', 10);
                 }
@@ -203,7 +202,7 @@ app.get("/supply", async (req, res) => {
     } catch (err) {
         console.error("Supply error:", err.response?.errors || err.message);
         if (err.response?.errors) { console.error("GraphQL Errors:", JSON.stringify(err.response.errors, null, 2)); }
-        res.status(500).json({ error: "Could not get supply", details: err.message });
+        res.status(500).json({ error: "Could not fetch supply", details: err.message });
     }
 });
 
