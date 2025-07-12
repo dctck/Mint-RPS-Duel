@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booster Pack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* UPDATED: Set the new background image using a relative path */
+        body {
+            background-image: url('./RPSbg.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+        .perspective { perspective: 1000px; }
+        .card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.8s, margin 0.5s, opacity 0.5s; transform-style: preserve-3d; }
+        .card.flipped .card-inner { transform: rotateY(180deg); }
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden; /* Safari */
+            backface-visibility: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 0.75rem; /* rounded-xl */
+        }
+        .card-front {
+            background-color: white; /* bg-white */
+            transform: rotateY(180deg);
+        }
+        /* UPDATED: Card back now uses your relative image path */
+        .card-back {
+            background-image: url('./RPS_Backcover_Temp.png');
+            background-size: cover;
+            background-position: center;
+            border: 1px solid rgba(0,0,0,0.2); /* Optional: adds a subtle border */
+        }
+
+        /* New pulsing dot loader styles */
+        .loader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .loader-dot {
+            height: 10px;
+            width: 10px;
+            margin: 0 4px;
+            background-color: #f3f4f6; /* Changed to light gray for better contrast */
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 1.4s infinite ease-in-out both;
+        }
+        .loader-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loader-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes pulse {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+        
+        /* Card stack styles */
+        #card-stack .card { position: absolute; transition: all 0.5s ease-in-out; }
+        #card-stack .card:nth-child(1) { transform: rotate(-5deg); }
+        #card-stack .card:nth-child(2) { transform: rotate(0deg); z-index: 1; }
+        #card-stack .card:nth-child(3) { transform: rotate(5deg); z-index: 2; }
+        
+        /* Card spread styles (when .revealed is added to container) */
+        #card-stack.revealed .card:nth-child(1) { margin-left: -200%; transform: rotate(-10deg); }
+        #card-stack.revealed .card:nth-child(2) { transform: rotate(0deg); }
+        #card-stack.revealed .card:nth-child(3) { margin-left: 200%; transform: rotate(10deg); }
+
+        /* Smoother transition animations */
+        @keyframes fadeOutDown {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(40px); } /* Reduced distance */
+        }
+        .fade-out-down { animation: fadeOutDown 0.4s ease-in forwards; } /* Slightly faster */
+
+        @keyframes fadeInFromTop {
+            from { opacity: 0; transform: translateY(-20px); } /* Reduced distance */
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in-from-top { animation: fadeInFromTop 0.4s ease-out forwards; } /* Slightly faster */
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-center items-center font-sans p-4 text-white">
+
+    <div id="booster-container" class="text-center">
+        <!-- UPDATED: Added text shadow for readability -->
+        <h1 id="header-text" class="text-5xl font-bold mb-8" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">Booster Pack</h1>
+
+        <!-- Card Stack Area -->
+        <div id="card-stack" class="relative w-48 h-72 mx-auto my-12 flex justify-center items-center">
+            <!-- 3 Cards for the stack and reveal -->
+            <div class="card perspective w-full h-full"> <div class="card-inner shadow-2xl"><div class="card-back"></div><div class="card-front text-7xl rounded-xl"></div></div></div>
+            <div class="card perspective w-full h-full"> <div class="card-inner shadow-2xl"><div class="card-back"></div><div class="card-front text-7xl rounded-xl"></div></div></div>
+            <div class="card perspective w-full h-full"> <div class="card-inner shadow-2xl"><div class="card-back"></div><div class="card-front text-7xl rounded-xl"></div></div></div>
+        </div>
+
+        <!-- Action Area -->
+        <div id="action-area" class="min-h-[60px]">
+            <!-- UPDATED: Button colors adjusted for contrast -->
+            <button id="reveal-btn" class="bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-4 px-8 text-lg rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out">
+                Reveal Cards
+            </button>
+            <!-- Loader HTML structure -->
+            <div id="loading-spinner" class="loader hidden">
+                <div class="loader-dot"></div>
+                <div class="loader-dot"></div>
+                <div class="loader-dot"></div>
+            </div>
+            <p id="status-message" class="mt-4 text-gray-100" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.7);"></p>
+        </div>
+
+        <!-- Container for the final action buttons to prevent layout shift -->
+        <div id="final-actions" class="mt-8 h-10 flex justify-center items-center gap-4">
+            <a href="./index.html" class="hidden inline-block bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-full shadow transition duration-200" id="back-btn">
+                &larr; Back to Dashboard
+            </a>
+            <!-- UPDATED: Button colors adjusted for contrast -->
+            <button id="open-another-btn" class="hidden bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transform hover:scale-105 transition duration-300 ease-in-out">
+                Open Another Pack
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const tokenMap = { 1: { name: "Rock", emoji: "✊" }, 2: { name: "Paper", emoji: "📄" }, 3: { name: "Scissors", emoji: "✂️" } };
+
+        // --- DOM Element References ---
+        const revealBtn = document.getElementById("reveal-btn");
+        const backBtn = document.getElementById("back-btn");
+        const openAnotherBtn = document.getElementById("open-another-btn");
+        const cardStack = document.getElementById("card-stack");
+        const cards = cardStack.querySelectorAll('.card');
+        const headerText = document.getElementById("header-text");
+        const loadingSpinner = document.getElementById("loading-spinner");
+        const statusMessage = document.getElementById("status-message");
+
+        // --- App Logic ---
+
+        /**
+         * DEMO FUNCTION: Generates a random pack of 3 tokens.
+         */
+        function getDemoPackContents() {
+            console.log("Generating a demo pack...");
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    const tokenIds = [1, 2, 3];
+                    const openedTokens = [];
+                    for (let i = 0; i < 3; i++) {
+                        const randomId = tokenIds[Math.floor(Math.random() * tokenIds.length)];
+                        openedTokens.push({ id: randomId, name: tokenMap[randomId].name });
+                    }
+                    console.log("Demo pack contents:", openedTokens);
+                    resolve({ success: true, openedTokens: openedTokens });
+                }, 1000); // 1 second delay
+            });
+        }
+        
+        /**
+         * Resets the animation state, making old cards disappear.
+         */
+        async function resetAnimationState() {
+            // Hide final action buttons
+            backBtn.classList.add('hidden');
+            openAnotherBtn.classList.add('hidden');
+            
+            // If cards are already revealed, play fade out animation
+            if (cardStack.classList.contains('revealed')) {
+                cardStack.classList.add('fade-out-down');
+                await wait(400); // Wait for fade out to finish
+            }
+            
+            // Fully hide the stack and remove animation classes
+            cardStack.classList.add('hidden');
+            cardStack.classList.remove('revealed', 'fade-out-down', 'fade-in-from-top');
+            
+            // Reset individual card state while hidden
+            cards.forEach(card => {
+                card.classList.remove('flipped');
+            });
+            
+            // Reset text
+            headerText.textContent = "Booster Pack";
+        }
+
+        /**
+         * Main function to orchestrate the entire reveal process.
+         */
+        async function revealAndAnimate() {
+            // If cards are already revealed, it means we're opening another pack
+            if (cardStack.classList.contains('revealed')) {
+                await resetAnimationState();
+            }
+
+            // Update UI for loading state
+            revealBtn.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+            statusMessage.textContent = "Opening pack...";
+
+            try {
+                // For this demo, we call our local function.
+                const result = await getDemoPackContents();
+                loadingSpinner.classList.add('hidden'); // Hide loader once we have the data
+
+                if (result.success && Array.isArray(result.openedTokens)) {
+                    statusMessage.textContent = "Pack opened! Revealing your tokens...";
+                    await revealNewPack(result.openedTokens);
+                } else {
+                    throw new Error(result.error || "Invalid response from server.");
+                }
+
+            } catch (err) {
+                console.error("❌ Error opening pack:", err);
+                statusMessage.textContent = `Error: ${err.message}`;
+                loadingSpinner.classList.add('hidden');
+                backBtn.classList.remove('hidden'); // Show back button on error
+            }
+        }
+
+        /**
+         * Handles the animation for a new pack appearing and revealing.
+         */
+        async function revealNewPack(tokens) {
+            statusMessage.textContent = "You got:";
+            headerText.textContent = "Your New Tokens!";
+
+            // Assign emojis to cards (while they are hidden)
+            tokens.forEach((token, index) => {
+                if (cards[index]) {
+                    const cardFront = cards[index].querySelector('.card-front');
+                    const tokenInfo = tokenMap[token.id];
+                    cardFront.textContent = tokenInfo ? tokenInfo.emoji : '?';
+                }
+            });
+
+            // Make the new stack appear with an animation
+            cardStack.classList.remove('hidden');
+            cardStack.classList.add('fade-in-from-top');
+            await wait(400); // Wait for new fade-in duration
+
+            // Spread cards out
+            cardStack.classList.add('revealed');
+            await wait(500); // Wait for spread to finish
+
+            // Flip cards one by one
+            for (let i = 0; i < cards.length; i++) {
+                await wait(400);
+                cards[i].classList.add('flipped');
+            }
+
+            // Show final action buttons
+            backBtn.classList.remove('hidden');
+            openAnotherBtn.classList.remove('hidden');
+        }
+
+        function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // --- Initial Setup ---
+        revealBtn.addEventListener("click", revealAndAnimate);
+        openAnotherBtn.addEventListener("click", revealAndAnimate); // New button also triggers the full sequence
+    </script>
+
+</body>
+</html>
